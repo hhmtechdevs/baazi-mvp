@@ -266,10 +266,11 @@ export function expectedActor(envelope: TableEnvelope): SeatId | null {
 /**
  * How long a seat gets before the authority plays for it.
  *
- * A person gets ten seconds; a computer seat gets five, which is the pause that was already there
- * to make its play watchable rather than instant. Same mechanism, two speeds.
+ * A person gets twenty seconds; a computer seat gets five, which is the pause that was already
+ * there to make its play watchable rather than instant. Same mechanism, two speeds — twenty is
+ * enough to actually read the floor and pick a move rather than being rushed.
  */
-export const HUMAN_TURN_MS = 10_000;
+export const HUMAN_TURN_MS = 20_000;
 export const AI_TURN_MS = 5_000;
 
 export function turnLimitMs(envelope: TableEnvelope, seat: SeatId): number {

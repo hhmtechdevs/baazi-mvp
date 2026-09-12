@@ -297,9 +297,9 @@ describe('running out of time', () => {
     expect(step!.envelope.gameRevision).toBe(table.gameRevision + 1);
   });
 
-  it('gives a person longer than a computer seat', () => {
+  it('gives a person four times as long as a computer seat', () => {
     expect(HUMAN_TURN_MS).toBeGreaterThan(AI_TURN_MS);
-    expect(HUMAN_TURN_MS).toBe(10_000);
+    expect(HUMAN_TURN_MS).toBe(20_000);
     expect(AI_TURN_MS).toBe(5_000);
   });
 

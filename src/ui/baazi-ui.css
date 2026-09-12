@@ -23,9 +23,17 @@ body {
 
 .baazi-app {
   min-height: 100vh;
+  /* 100dvh where supported: on iOS the browser chrome shrinks and grows, and 100vh is the TALL
+     value, which pushes the bottom of the table under the address bar. */
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: 10px 14px 12px;
+  /* index.html asks for viewport-fit=cover so the blanket runs edge to edge behind the rounded
+     corners — which means nothing is reserved for the notch or the home indicator unless we do it
+     here. Without these the turn status and Leave sit underneath the Dynamic Island. */
+  padding:
+    calc(10px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right))
+    calc(12px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));
   gap: 6px;
 }
 
@@ -940,13 +948,29 @@ body {
 
 /* Identity and this turn's choices share one strip below the hand, so the options never sit over
    the cards or push the table around when they appear. */
+/* Your nameplate and this turn's choices.
+
+   Three columns, with the nameplate anchored left and the choices in the middle one: because the
+   outer columns are equal fractions, the choices stay centred on the table however wide they get,
+   instead of being shoved off-centre by the chip sitting next to them. Your name belongs at your
+   own edge; the moves belong in front of you. */
 .baazi-bottom-bar {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: center;
-  gap: 10px;
+  column-gap: 14px;
   min-height: 38px;
+  width: 100%;
+}
+
+.baazi-bottom-bar > .baazi-player-chip {
+  grid-column: 1;
+  justify-self: start;
+  min-width: 0;
+}
+
+.baazi-bottom-bar > .baazi-choice-row {
+  grid-column: 2;
 }
 
 .baazi-choice-row {
@@ -1134,7 +1158,9 @@ body {
 
 @media (max-width: 560px) {
   .baazi-app {
-    padding: 8px 8px 10px;
+    padding:
+      calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right))
+      calc(10px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
   }
 
   /* Whose turn it is is the single most important line on the screen, and three columns cannot
@@ -1218,6 +1244,31 @@ body {
 
   .baazi-side-round {
     display: none;
+  }
+
+  /* On a phone three move options plus a nameplate cannot share one line. The choices take the
+     full width and the nameplate sits under them, at the very edge of the table — which is where
+     you are anyway. */
+  .baazi-bottom-bar {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+    justify-items: center;
+  }
+
+  .baazi-bottom-bar > .baazi-player-chip {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: center;
+  }
+
+  .baazi-bottom-bar > .baazi-choice-row {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .baazi-choice-button {
+    padding: 9px 12px;
+    font-size: 13px;
   }
 }
 
