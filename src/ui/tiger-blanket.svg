@@ -1,0 +1,249 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1300" preserveAspectRatio="xMidYMid slice">
+  <!--
+    The table surface: a printed tiger blanket of the kind that ends up on a family bed and then,
+    on a slow afternoon, becomes the card table.
+
+    Drawn flat and a little crude on purpose — solid fills, no gradients on any motif, vegetation
+    packed in wherever there was room. That "printed by the thousand" quality is the point; a
+    careful illustration would read as decoration rather than as an object with a history.
+
+    Deliberately kept LOW CONTRAST. Cards get laid on top of this and the cards have to win, so
+    the outlines are dark brown rather than black, the gold is dulled the way a washed blanket
+    dulls, and the greens sit close to each other in value. It is meant to be felt more than
+    looked at.
+  -->
+  <defs>
+    <!-- A lobed bush. Reused at many sizes and flips so the planting reads as dense rather than
+         as one stamp repeated. -->
+    <path id="tb-shrub" d="M2 72 C-4 44 12 20 38 24 C46 2 82 -4 98 12 C122 0 146 20 140 46 C160 56 156 74 138 72 Z"/>
+
+    <!-- A sprig: long stem, two lance-shaped leaves. The filler that makes the field look
+         printed-over rather than blank. -->
+    <g id="tb-sprig">
+      <path d="M20 52 L20 12" stroke-width="3" stroke-linecap="round" fill="none" stroke="currentColor"/>
+      <path d="M20 34 C6 32 -2 20 1 4 C15 6 24 18 20 32 Z"/>
+      <path d="M20 26 C34 22 42 10 39 -6 C25 -4 16 8 20 24 Z"/>
+    </g>
+
+    <!-- Grass: a handful of tapered blades from one root. -->
+    <g id="tb-grass">
+      <path d="M30 46 C24 32 14 22 0 16 C10 20 24 28 30 46 Z"/>
+      <path d="M30 46 C30 30 26 14 20 0 C30 12 36 30 34 46 Z"/>
+      <path d="M32 46 C38 30 50 18 64 12 C52 20 40 30 36 46 Z"/>
+      <path d="M32 46 C40 36 54 30 68 30 C54 34 42 40 36 46 Z"/>
+    </g>
+  </defs>
+
+  <!-- Ground: warm ochre wool, unevenly dyed and gone a bit flat with washing. -->
+  <rect width="1000" height="1300" fill="#9c7630"/>
+  <g fill="#8e6a2a" opacity="0.6">
+    <ellipse cx="210" cy="250" rx="300" ry="200"/>
+    <ellipse cx="820" cy="560" rx="260" ry="230"/>
+    <ellipse cx="300" cy="1080" rx="320" ry="210"/>
+    <ellipse cx="760" cy="1240" rx="280" ry="180"/>
+  </g>
+  <g fill="#a8813a" opacity="0.5">
+    <ellipse cx="620" cy="180" rx="240" ry="150"/>
+    <ellipse cx="140" cy="700" rx="200" ry="190"/>
+    <ellipse cx="880" cy="980" rx="230" ry="170"/>
+  </g>
+
+  <!-- Border: dark band, thin gold rule, and a run of leaves, the way these always end. -->
+  <rect x="0" y="0" width="1000" height="1300" fill="none" stroke="#1b2c1c" stroke-width="58"/>
+  <rect x="42" y="42" width="916" height="1216" fill="none" stroke="#7c5a1f" stroke-width="5"/>
+  <g fill="#2a4325" color="#2a4325">
+    <g>
+      <use href="#tb-sprig" x="60" y="50"/><use href="#tb-sprig" x="150" y="50"/>
+      <use href="#tb-sprig" x="240" y="50"/><use href="#tb-sprig" x="330" y="50"/>
+      <use href="#tb-sprig" x="420" y="50"/><use href="#tb-sprig" x="510" y="50"/>
+      <use href="#tb-sprig" x="600" y="50"/><use href="#tb-sprig" x="690" y="50"/>
+      <use href="#tb-sprig" x="780" y="50"/><use href="#tb-sprig" x="870" y="50"/>
+    </g>
+    <g transform="translate(0,1300) scale(1,-1)">
+      <use href="#tb-sprig" x="60" y="50"/><use href="#tb-sprig" x="150" y="50"/>
+      <use href="#tb-sprig" x="240" y="50"/><use href="#tb-sprig" x="330" y="50"/>
+      <use href="#tb-sprig" x="420" y="50"/><use href="#tb-sprig" x="510" y="50"/>
+      <use href="#tb-sprig" x="600" y="50"/><use href="#tb-sprig" x="690" y="50"/>
+      <use href="#tb-sprig" x="780" y="50"/><use href="#tb-sprig" x="870" y="50"/>
+    </g>
+  </g>
+
+  <!-- Planting along the top and bottom of the field, in two depths. -->
+  <g fill="#20391c">
+    <use href="#tb-shrub" x="72" y="120" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="300" y="128" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="500" y="114" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="640" y="126" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="72" y="800" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="300" y="806" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="500" y="796" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="640" y="808" transform="scale(1.35)"/>
+  </g>
+  <g fill="#2f5228">
+    <use href="#tb-shrub" x="120" y="152" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="380" y="160" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="560" y="148" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="120" y="832" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="380" y="840" transform="scale(1.35)"/>
+    <use href="#tb-shrub" x="560" y="828" transform="scale(1.35)"/>
+  </g>
+
+  <!-- Field filler: sprigs and grass over the open ochre, dense enough that no large area of plain
+       cloth is left anywhere. -->
+  <g fill="#35592b" color="#35592b" opacity="0.9">
+    <use href="#tb-sprig" x="120" y="300" transform="rotate(-12 140 326)"/>
+    <use href="#tb-sprig" x="300" y="270" transform="rotate(8 320 296)"/>
+    <use href="#tb-sprig" x="560" y="290" transform="rotate(-5 580 316)"/>
+    <use href="#tb-sprig" x="760" y="262" transform="rotate(13 780 288)"/>
+    <use href="#tb-sprig" x="880" y="330" transform="rotate(-9 900 356)"/>
+    <use href="#tb-sprig" x="90" y="430" transform="rotate(7 110 456)"/>
+    <use href="#tb-sprig" x="880" y="470" transform="rotate(-14 900 496)"/>
+    <use href="#tb-sprig" x="110" y="600" transform="rotate(10 130 626)"/>
+    <use href="#tb-sprig" x="890" y="640" transform="rotate(-7 910 666)"/>
+    <use href="#tb-sprig" x="100" y="770" transform="rotate(-11 120 796)"/>
+    <use href="#tb-sprig" x="880" y="790" transform="rotate(9 900 816)"/>
+    <use href="#tb-sprig" x="250" y="990" transform="rotate(-8 270 1016)"/>
+    <use href="#tb-sprig" x="470" y="1030" transform="rotate(11 490 1056)"/>
+    <use href="#tb-sprig" x="690" y="980" transform="rotate(-13 710 1006)"/>
+    <use href="#tb-sprig" x="150" y="1130" transform="rotate(6 170 1156)"/>
+    <use href="#tb-sprig" x="820" y="1120" transform="rotate(-6 840 1146)"/>
+    <use href="#tb-sprig" x="500" y="1160" transform="rotate(12 520 1186)"/>
+  </g>
+  <g fill="#2b4a24" opacity="0.9">
+    <use href="#tb-grass" x="160" y="360" transform="scale(1.3)"/>
+    <use href="#tb-grass" x="600" y="352" transform="scale(1.25)"/>
+    <use href="#tb-grass" x="90" y="520" transform="scale(1.35)"/>
+    <use href="#tb-grass" x="650" y="530" transform="scale(1.3)"/>
+    <use href="#tb-grass" x="120" y="690" transform="scale(1.25)"/>
+    <use href="#tb-grass" x="640" y="700" transform="scale(1.35)"/>
+    <use href="#tb-grass" x="200" y="860" transform="scale(1.3)"/>
+    <use href="#tb-grass" x="560" y="870" transform="scale(1.25)"/>
+    <use href="#tb-grass" x="300" y="960" transform="scale(1.3)"/>
+    <use href="#tb-grass" x="480" y="990" transform="scale(1.35)"/>
+  </g>
+
+  <!--
+       The tiger. Sitting in the clearing, facing straight out of the cloth at whoever is on the
+       bed. Body kept wide and open so the striping — the thing that makes it a tiger rather than a
+       big cat — is actually visible, and the head kept small enough not to stare through the cards.
+  -->
+  <!-- Held a little under full strength: the cards sit right on top of the animal, and a fully
+       opaque outline behind a white card face is the one thing that makes a card harder to read. -->
+  <g transform="translate(500 660) scale(0.66) translate(-310 -230)" stroke="#3a2a19" stroke-width="6" opacity="0.78">
+    <!-- tail, curling out to the right, ringed -->
+    <path d="M560 330 C664 320 700 246 676 178 C664 140 620 132 604 156 C592 176 604 196 622 198"
+          fill="none" stroke="#3a2a19" stroke-width="34" stroke-linecap="round"/>
+    <path d="M560 330 C664 320 700 246 676 178 C664 140 620 132 604 156 C592 176 604 196 622 198"
+          fill="none" stroke="#c79240" stroke-width="23" stroke-linecap="round"/>
+    <g stroke="#3a2a19" stroke-width="9" stroke-linecap="round" fill="none">
+      <path d="M596 318 L604 340"/>
+      <path d="M648 284 L668 298"/>
+      <path d="M676 226 L700 230"/>
+      <path d="M672 168 L694 160"/>
+    </g>
+
+    <!-- haunches, then the barrel of the body between them -->
+    <ellipse cx="96" cy="300" rx="96" ry="104" fill="#c08b3c"/>
+    <ellipse cx="524" cy="300" rx="96" ry="104" fill="#c08b3c"/>
+    <path d="M60 250 C60 168 172 124 310 124 C448 124 560 168 560 250 L560 316
+             C560 382 452 414 310 414 C168 414 60 382 60 316 Z"
+          fill="#c79240"/>
+
+    <!-- chest and belly, paler -->
+    <path d="M180 300 C220 358 400 358 440 300 C452 372 388 406 310 406 C232 406 168 372 180 300 Z"
+          fill="#ddd0b0" stroke="none"/>
+
+    <!-- flank striping: the reason this is a tiger. Tapered, unevenly spaced, running down off
+         the spine on both sides. -->
+    <g fill="#3a2a19" stroke="none">
+      <path d="M120 150 C134 196 132 266 116 322 C98 270 98 196 120 150 Z"/>
+      <path d="M172 132 C188 184 186 262 168 326 C150 266 150 188 172 132 Z"/>
+      <path d="M228 122 C244 178 242 258 224 326 C206 262 206 182 228 122 Z"/>
+      <path d="M392 122 C414 182 414 262 396 326 C378 258 376 178 392 122 Z"/>
+      <path d="M448 132 C470 188 470 266 452 326 C434 262 432 184 448 132 Z"/>
+      <path d="M500 150 C522 196 522 270 504 322 C488 266 488 196 500 150 Z"/>
+      <!-- haunch arcs -->
+      <path d="M40 254 C66 250 92 258 108 274 C82 284 54 278 40 254 Z"/>
+      <path d="M36 312 C62 308 88 316 104 332 C78 342 50 336 36 312 Z"/>
+      <path d="M580 254 C566 278 538 284 512 274 C528 258 554 250 580 254 Z"/>
+      <path d="M584 312 C570 336 542 342 516 332 C532 316 558 308 584 312 Z"/>
+    </g>
+
+    <!-- front legs -->
+    <g fill="#c79240">
+      <path d="M204 300 L204 424 C204 448 222 462 250 462 C278 462 296 448 296 424 L296 300 Z"/>
+      <path d="M324 300 L324 424 C324 448 342 462 370 462 C398 462 416 448 416 424 L416 300 Z"/>
+    </g>
+    <g fill="#3a2a19" stroke="none">
+      <path d="M206 330 C232 326 268 326 294 330 C268 344 232 344 206 330 Z"/>
+      <path d="M206 378 C232 374 268 374 294 378 C268 392 232 392 206 378 Z"/>
+      <path d="M326 330 C352 326 388 326 414 330 C388 344 352 344 326 330 Z"/>
+      <path d="M326 378 C352 374 388 374 414 378 C388 392 352 392 326 378 Z"/>
+    </g>
+    <g fill="none" stroke="#3a2a19" stroke-width="6" stroke-linecap="round">
+      <path d="M222 444 L222 460"/><path d="M250 446 L250 462"/><path d="M278 444 L278 460"/>
+      <path d="M342 444 L342 460"/><path d="M370 446 L370 462"/><path d="M398 444 L398 460"/>
+    </g>
+
+    <!-- ears -->
+    <g fill="#c79240">
+      <circle cx="206" cy="18" r="42"/>
+      <circle cx="414" cy="18" r="42"/>
+    </g>
+    <g fill="#3a2a19" stroke="none">
+      <circle cx="200" cy="8" r="18"/>
+      <circle cx="420" cy="8" r="18"/>
+    </g>
+
+    <!-- head -->
+    <path d="M310 -18 C390 -18 448 34 448 106 C448 178 390 224 310 224 C230 224 172 178 172 106
+             C172 34 230 -18 310 -18 Z"
+          fill="#cf9a44"/>
+
+    <!-- cheek ruff -->
+    <g fill="#ddd0b0" stroke="none">
+      <path d="M192 130 L164 142 L194 150 L168 166 L200 170 L184 190 L216 184 Z"/>
+      <path d="M428 130 L456 142 L426 150 L452 166 L420 170 L436 190 L404 184 Z"/>
+    </g>
+
+    <!-- face striping -->
+    <g fill="#3a2a19" stroke="none">
+      <path d="M310 -12 C318 10 318 34 310 54 C302 34 302 10 310 -12 Z"/>
+      <path d="M268 -6 C270 18 264 42 252 60 C250 34 256 12 268 -6 Z"/>
+      <path d="M352 -6 C364 12 370 34 368 60 C356 42 350 18 352 -6 Z"/>
+      <path d="M222 30 C242 38 258 52 266 70 C242 68 226 54 222 30 Z"/>
+      <path d="M398 30 C394 54 378 68 354 70 C362 52 378 38 398 30 Z"/>
+      <path d="M192 92 C214 90 234 96 248 106 C228 116 206 110 192 92 Z"/>
+      <path d="M428 92 C414 110 392 116 372 106 C386 96 406 90 428 92 Z"/>
+    </g>
+
+    <!-- eyes -->
+    <g>
+      <ellipse cx="262" cy="100" rx="26" ry="20" fill="#efe2c0" stroke-width="5"/>
+      <ellipse cx="358" cy="100" rx="26" ry="20" fill="#efe2c0" stroke-width="5"/>
+      <circle cx="265" cy="102" r="10" fill="#3a2a19" stroke="none"/>
+      <circle cx="355" cy="102" r="10" fill="#3a2a19" stroke="none"/>
+    </g>
+
+    <!-- muzzle, nose, mouth, whisker dots -->
+    <path d="M310 128 C352 128 378 148 378 170 C378 194 348 210 310 210 C272 210 242 194 242 170
+             C242 148 268 128 310 128 Z"
+          fill="#e6dabb" stroke-width="5"/>
+    <path d="M310 126 C325 126 335 134 335 145 C335 156 323 164 310 164 C297 164 285 156 285 145
+             C285 134 295 126 310 126 Z"
+          fill="#3a2a19" stroke="none"/>
+    <path d="M310 164 L310 181 M310 181 C298 195 279 193 272 181 M310 181 C322 195 341 193 348 181"
+          fill="none" stroke="#3a2a19" stroke-width="6" stroke-linecap="round"/>
+    <g fill="#3a2a19" stroke="none">
+      <circle cx="270" cy="176" r="4"/><circle cx="279" cy="190" r="4"/>
+      <circle cx="350" cy="176" r="4"/><circle cx="341" cy="190" r="4"/>
+    </g>
+  </g>
+
+  <!-- grass in front of the tiger, so it sits IN the planting rather than on top of it -->
+  <g fill="#2b4a24">
+    <use href="#tb-grass" x="330" y="760" transform="scale(1.45)"/>
+    <use href="#tb-grass" x="180" y="770" transform="scale(1.5)"/>
+    <use href="#tb-grass" x="450" y="768" transform="scale(1.4)"/>
+  </g>
+</svg>

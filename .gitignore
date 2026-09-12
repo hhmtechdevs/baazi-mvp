@@ -1,0 +1,13 @@
+# Dependencies and build output — Vercel installs and builds these itself.
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local configuration. The Supabase anon key is designed to ship in the client bundle, so it is not
+# a secret in the dangerous sense — but it still belongs in the deploy's environment settings rather
+# than in the repository.
+.env
+.env.local
+.env.*.local
+
+.DS_Store
