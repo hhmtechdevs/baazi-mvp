@@ -14,7 +14,7 @@ import type { OrchestratedGame, RoundCompletionResult } from '../engine/roundOrc
 
 /** Bumped if the stored shape ever changes incompatibly, so an old row is ignored rather than
  * misread. The Guacamole-era rows in this table have no `v` at all and are skipped by that rule. */
-export const ENVELOPE_VERSION = 3;
+export const ENVELOPE_VERSION = 4;
 
 /** Engine seat ids. The order matters and is not cosmetic: the 4-player deal pairs seats 0+2 and
  * 1+3, so listing them this way puts the two humans on one team and the two AI players on the
@@ -61,6 +61,16 @@ export interface TableEnvelope {
   /** Compare-and-swap token for WRITES. Every write increments it, and every write is conditional
    * on the value it read — see store.ts. */
   revision: number;
+  /**
+   * When the current turn began, as epoch milliseconds — written by the authority every time the
+   * game moves.
+   *
+   * It lives in the envelope rather than in each browser for two reasons: both players have to see
+   * the same clock (a local timer would drift, and would show two different countdowns), and a
+   * refresh must not hand you a fresh ten seconds. It is also what lets the host enforce the limit
+   * for a player whose browser has gone away.
+   */
+  turnStartedAt: number;
   /** How many times the GAME has actually changed. Only moves it when the engine produces a new
    * state, so a player's view of the position can be checked for staleness independently of
    * unrelated writes to the row. */
@@ -138,6 +148,7 @@ export function createEnvelope(code: string, hostSessionId: string, hostName?: s
     v: ENVELOPE_VERSION,
     revision: 1,
     gameRevision: 0,
+    turnStartedAt: 0,
     status: 'waiting',
     code,
     hostSessionId,
@@ -250,6 +261,26 @@ export function expectedActor(envelope: TableEnvelope): SeatId | null {
   if (state.phase === 'bidding' || state.phase === 'revealing') return (state.bidderId as SeatId) ?? null;
   if (state.phase === 'playing') return (state.players[state.currentPlayerIndex]?.id as SeatId) ?? null;
   return null;
+}
+
+/**
+ * How long a seat gets before the authority plays for it.
+ *
+ * A person gets ten seconds; a computer seat gets five, which is the pause that was already there
+ * to make its play watchable rather than instant. Same mechanism, two speeds.
+ */
+export const HUMAN_TURN_MS = 10_000;
+export const AI_TURN_MS = 5_000;
+
+export function turnLimitMs(envelope: TableEnvelope, seat: SeatId): number {
+  return seatRecord(envelope, seat)?.kind === 'ai' ? AI_TURN_MS : HUMAN_TURN_MS;
+}
+
+/** Milliseconds left on the current turn, floored at zero. */
+export function turnRemainingMs(envelope: TableEnvelope, now: number): number {
+  const actor = expectedActor(envelope);
+  if (!actor || !envelope.turnStartedAt) return 0;
+  return Math.max(0, envelope.turnStartedAt + turnLimitMs(envelope, actor) - now);
 }
 
 /** True when the table is waiting on a seat nobody is sitting in — i.e. the host should play it. */

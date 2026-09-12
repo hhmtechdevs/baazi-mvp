@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CardBack, PlayingCard } from './Card';
 import { labelLegalOptions } from './describeOption';
 import { House } from './House';
@@ -39,6 +39,36 @@ function sortedForDisplay(cards: Card[]): Card[] {
   return [...cards].sort((a, b) => RANK_ORDER[a.rank] - RANK_ORDER[b.rank]);
 }
 
+/**
+ * How much of this turn is left, as 1 → 0, refreshed each frame.
+ *
+ * Driven from the turn's start time rather than from a local countdown, because the start time is
+ * written on the table itself: both players' rings therefore empty together, and a refresh picks up
+ * the sweep where it actually is instead of restarting it.
+ */
+function useCountdown(startedAt: number | undefined, limitMs: number | undefined): number | null {
+  const [fraction, setFraction] = useState<number | null>(null);
+  const frame = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!startedAt || !limitMs) {
+      setFraction(null);
+      return undefined;
+    }
+    const step = () => {
+      const left = Math.max(0, Math.min(1, (startedAt + limitMs - Date.now()) / limitMs));
+      setFraction(left);
+      if (left > 0) frame.current = requestAnimationFrame(step);
+    };
+    step();
+    return () => {
+      if (frame.current) cancelAnimationFrame(frame.current);
+    };
+  }, [startedAt, limitMs]);
+
+  return fraction;
+}
+
 /** Name plus cards-remaining-in-hand — the count updates straight off the engine's hand array, and
  * never reveals which cards those are. */
 export function PlayerChip({
@@ -46,16 +76,27 @@ export function PlayerChip({
   handCount,
   isTurn = false,
   thinking = false,
-  className = ''
+  className = '',
+  turnStartedAt,
+  turnLimitMs
 }: {
   name: string;
   handCount: number;
   isTurn?: boolean;
   thinking?: boolean;
   className?: string;
+  /** When this seat's turn began (epoch ms) and how long it gets. Supplied together or not at all;
+   * without them the nameplate simply has no ring. */
+  turnStartedAt?: number;
+  turnLimitMs?: number;
 }) {
+  const fraction = useCountdown(isTurn ? turnStartedAt : undefined, turnLimitMs);
+
   return (
-    <div className={`baazi-player-chip ${isTurn ? 'is-turn' : ''} ${className}`}>
+    <div
+      className={`baazi-player-chip ${isTurn ? 'is-turn' : ''} ${fraction !== null ? 'has-clock' : ''} ${className}`}
+      style={fraction !== null ? ({ '--turn-left': String(fraction) } as React.CSSProperties) : undefined}
+    >
       <div className="baazi-player-avatar">
         <span>{name.charAt(0).toUpperCase()}</span>
       </div>
@@ -75,10 +116,27 @@ export function PlayerChip({
 }
 
 /** Somebody else's place at the blanket: who they are, and their cards face down in front of them. */
-function OpponentSeat({ seat, thinking }: { seat: Seat; thinking: boolean }) {
+function OpponentSeat({
+  seat,
+  thinking,
+  turnStartedAt,
+  turnLimitMs
+}: {
+  seat: Seat;
+  thinking: boolean;
+  turnStartedAt?: number;
+  turnLimitMs?: number;
+}) {
   return (
     <div className={`baazi-seat is-${seat.position}`}>
-      <PlayerChip name={seat.name} handCount={seat.handCount} isTurn={seat.isTurn} thinking={thinking} />
+      <PlayerChip
+        name={seat.name}
+        handCount={seat.handCount}
+        isTurn={seat.isTurn}
+        thinking={thinking}
+        turnStartedAt={turnStartedAt}
+        turnLimitMs={turnLimitMs}
+      />
       <div className="baazi-seat-cards">
         <div className="baazi-seat-cards-run">
           {Array.from({ length: seat.handCount }, (_, i) => (
@@ -107,6 +165,16 @@ export interface TableProps {
   onNextRound?: () => void;
   /** Anything that should float over the middle of the blanket — a waiting notice, a refusal. */
   notice?: React.ReactNode;
+  /** Shown on a shared table so you can get up from it. Absent for Practice, which has no table to
+   * leave — you just stop. */
+  onLeave?: () => void;
+  /** The game's code, kept on screen next to Leave so getting up is reversible: it is the one thing
+   * you need to sit back down, and nobody memorises four characters they only saw once. */
+  tableCode?: string;
+  /** When the current turn began (epoch ms), and how long the seat on turn gets. Drives the ring
+   * around the active nameplate. Omitted for Practice, which has no shared clock. */
+  turnStartedAt?: number;
+  turnLimitMs?: number;
 }
 
 export function TableView(props: TableProps) {
@@ -187,6 +255,12 @@ export function TableView(props: TableProps) {
         </div>
 
         <div className="baazi-topbar-end">
+          {props.tableCode && <span className="baazi-table-code" title="This game's code">{props.tableCode}</span>}
+          {props.onLeave && (
+            <button className="baazi-table-leave" onClick={props.onLeave}>
+              Leave
+            </button>
+          )}
           {state.bidValue !== null && (state.phase === 'revealing' || state.phase === 'playing') && (
             <div className="baazi-call-badge">CALL {state.bidValue}</div>
           )}
@@ -197,7 +271,15 @@ export function TableView(props: TableProps) {
         {(['north', 'west', 'east'] as const).map(position => {
           const seat = seatAt(seats, position);
           if (!seat) return null;
-          return <OpponentSeat key={position} seat={seat} thinking={thinkingPlayerId === seat.playerId} />;
+          return (
+            <OpponentSeat
+              key={position}
+              seat={seat}
+              thinking={thinkingPlayerId === seat.playerId}
+              turnStartedAt={props.turnStartedAt}
+              turnLimitMs={props.turnLimitMs}
+            />
+          );
         })}
 
         <div className="baazi-centre">
@@ -255,7 +337,14 @@ export function TableView(props: TableProps) {
           {/* Identity and the turn's choices share the bottom strip, so options never push the
               table around or crowd the tops of the cards. */}
           <div className="baazi-bottom-bar">
-            <PlayerChip name="You" handCount={me.hand.length} isTurn={isYourMove} className="is-self" />
+            <PlayerChip
+              name="You"
+              handCount={me.hand.length}
+              isTurn={isYourMove}
+              className="is-self"
+              turnStartedAt={props.turnStartedAt}
+              turnLimitMs={props.turnLimitMs}
+            />
 
             {isMyBid && (
               <div className="baazi-choice-row">

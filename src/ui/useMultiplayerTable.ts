@@ -7,7 +7,10 @@ import { codeFromUrl, forgetTable, lastTable, rememberTable, sessionId } from '.
 import { isSupabaseConfigured } from '../supabase';
 import type { OpeningAction } from '../types';
 import type { NormalPlayMove } from '../engine/moveExecution';
-import { BOT_DELAY_MS_DEFAULT } from './useBaaziGame';
+/** How often the authority re-examines the table. Short enough that a five- or ten-second
+ * allowance ends when it looks like it should, cheap enough to run every second: nextHostStep is a
+ * pure function that returns null the moment there is nothing to do. */
+const HOST_TICK_MS = 1_000;
 
 /**
  * One real table, shared between two browsers.
@@ -63,7 +66,6 @@ export function useMultiplayerTable(): MultiplayerTable {
   // loop always acts on the latest table rather than whatever a closure captured.
   const current = useRef<TableEnvelope | null>(null);
   const writing = useRef(false);
-  const aiTimer = useRef<number | undefined>(undefined);
 
   const adopt = useCallback((next: TableEnvelope) => {
     current.current = next;
@@ -116,34 +118,33 @@ export function useMultiplayerTable(): MultiplayerTable {
   }, [envelope?.code, adopt]);
 
   // ---- the host loop -------------------------------------------------------
-  // Only the host runs this. It takes one step at a time and writes it conditionally; a conflict
-  // means somebody else got there first, so it reloads and reconsiders instead of forcing its
-  // version through.
+  // Only the host runs this, and it now runs on a clock rather than only when something changes.
+  //
+  // That single change does three jobs at once: it holds a computer seat back for its five seconds,
+  // it enforces a person's ten, and it acts as a heartbeat. The previous version woke only on an
+  // envelope change, so a tick dropped while a write was in flight — or a realtime message that
+  // never arrived — could park a perfectly valid table forever with nobody able to move it.
   const isHost = !!envelope && envelope.hostSessionId === me;
 
   useEffect(() => {
     if (!isHost) return undefined;
-    const table = current.current;
-    if (!table || writing.current) return undefined;
+    let cancelled = false;
 
-    const step = nextHostStep(table, { aiIsReady: true });
-    if (!step) return undefined;
-
-    // An AI seat waits a beat so its play can be watched; everything else goes immediately.
-    const delay = step.kind === 'ai' ? BOT_DELAY_MS_DEFAULT : 0;
-
-    const run = async () => {
+    const tick = async () => {
+      if (cancelled || writing.current) return;
       const from = current.current;
-      if (!from || writing.current) return;
-      const decided = nextHostStep(from, { aiIsReady: true });
-      if (!decided) return;
+      if (!from) return;
+
+      const step = nextHostStep(from, Date.now());
+      if (!step) return;
 
       writing.current = true;
       try {
-        const result = await saveTable(decided.envelope, from.revision);
+        const result = await saveTable(step.envelope, from.revision);
         if (result.ok) {
           adopt(result.envelope);
         } else if (result.conflict) {
+          // Somebody wrote first. Re-read and decide again rather than forcing our version through.
           const fresh = await loadTable(from.code);
           if (fresh) adopt(fresh);
         } else {
@@ -154,12 +155,12 @@ export function useMultiplayerTable(): MultiplayerTable {
       }
     };
 
-    if (delay === 0) {
-      void run();
-      return undefined;
-    }
-    aiTimer.current = window.setTimeout(() => void run(), delay);
-    return () => window.clearTimeout(aiTimer.current);
+    void tick();
+    const timer = window.setInterval(() => void tick(), HOST_TICK_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [isHost, envelope, adopt]);
 
   // ---- create / join / leave ----------------------------------------------

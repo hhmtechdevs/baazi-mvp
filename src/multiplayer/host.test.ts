@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyRequest, dealNextRound, nextHostStep, playAiTurn, startTable } from './host';
-import { claimSeat, createEnvelope, expectedActor, seatRecord } from './protocol';
+import { AI_TURN_MS, HUMAN_TURN_MS, claimSeat, createEnvelope, expectedActor, seatRecord } from './protocol';
 import type { ActionRequest, SeatId, TableEnvelope } from './protocol';
 import { discoverLegalMoves } from '../engine/roundOrchestrator';
 import { flattenOptionsForHand, toNormalPlayMove } from '../engine/moveAdapter';
@@ -12,6 +12,12 @@ function seated(): TableEnvelope {
   const claim = claimSeat(createEnvelope('K7QM', HOST, 'Sydney'), GUEST, 'Sydney');
   if (!claim.ok) throw new Error('fixture: guest could not sit down');
   return claim.envelope;
+}
+
+/** A moment well past the current turn's allowance, so the authority will act on it. Passing time
+ * in explicitly is what makes these tests exact rather than dependent on a real clock. */
+function elapsed(env: TableEnvelope): number {
+  return env.turnStartedAt + 60_000;
 }
 
 function sessionFor(seat: SeatId): string {
@@ -32,7 +38,7 @@ function runUntilHumanTurn(start: TableEnvelope, limit = 200): TableEnvelope {
   for (let i = 0; i < limit; i++) {
     const actor = expectedActor(table);
     if (actor && seatRecord(table, actor)!.kind === 'human') return table;
-    const step = nextHostStep(table, { aiIsReady: true });
+    const step = nextHostStep(table, elapsed(table));
     if (!step) return table;
     table = step.envelope;
   }
@@ -41,7 +47,8 @@ function runUntilHumanTurn(start: TableEnvelope, limit = 200): TableEnvelope {
 
 describe('the host deals, once, when the table is full', () => {
   it('deals a four-handed round with the seats it was given', () => {
-    const step = nextHostStep(seated(), { aiIsReady: true });
+    const seatedNow = seated();
+    const step = nextHostStep(seatedNow, elapsed(seatedNow));
     expect(step?.kind).toBe('deal');
     const game = step!.envelope.game!;
     expect(game.state.mode).toBe('4player');
@@ -51,17 +58,17 @@ describe('the host deals, once, when the table is full', () => {
 
   it('does not deal again once there is a game', () => {
     const dealt = startTable(seated());
-    const step = nextHostStep(dealt, { aiIsReady: true });
+    const step = nextHostStep(dealt, elapsed(dealt));
     expect(step?.kind).not.toBe('deal');
   });
 
   it('does not deal while the table is still waiting for somebody', () => {
-    expect(nextHostStep(createEnvelope('K7QM', HOST), { aiIsReady: true })).toBeNull();
+    expect(nextHostStep(createEnvelope('K7QM', HOST), Date.now() + 60_000)).toBeNull();
   });
 
   it('gives every authoritative change its own revision', () => {
     const before = seated();
-    const after = nextHostStep(before, { aiIsReady: true })!.envelope;
+    const after = nextHostStep(before, elapsed(before))!.envelope;
     expect(after.revision).toBe(before.revision + 1);
   });
 });
@@ -164,7 +171,7 @@ describe('the computer seats', () => {
     expect(() => playAiTurn(table, 'you')).toThrow(/not played by the computer/i);
   });
 
-  it('are held back until the host says the pause is over', () => {
+  it('are held back until their five seconds are up, then played', () => {
     let table = startTable(seated());
     while (seatRecord(table, expectedActor(table)!)!.kind === 'human') {
       const seat = expectedActor(table)!;
@@ -172,8 +179,10 @@ describe('the computer seats', () => {
       if (table.game!.state.phase !== 'bidding') break;
     }
     if (seatRecord(table, expectedActor(table)!)!.kind !== 'ai') return;
-    expect(nextHostStep(table, { aiIsReady: false })).toBeNull();
-    expect(nextHostStep(table, { aiIsReady: true })?.kind).toBe('ai');
+    // One millisecond early: nothing. One millisecond late: the authority plays it.
+    expect(nextHostStep(table, table.turnStartedAt + AI_TURN_MS - 1)).toBeNull();
+    expect(nextHostStep(table, table.turnStartedAt + AI_TURN_MS)?.kind).toBe('play');
+    expect(nextHostStep(table, elapsed(table))?.kind).toBe('play');
   });
 });
 
@@ -196,7 +205,7 @@ describe('a whole round, driven the way the host drives it', () => {
         humanActions++;
         continue;
       }
-      const step = nextHostStep(table, { aiIsReady: true });
+      const step = nextHostStep(table, elapsed(table));
       if (!step) break;
       table = step.envelope;
     }
@@ -222,7 +231,7 @@ describe('the end of a round', () => {
         table = applyRequest(table, request(table, actor, choice.kind, choice.payload)).envelope;
         continue;
       }
-      const step = nextHostStep(table, { aiIsReady: true });
+      const step = nextHostStep(table, elapsed(table));
       if (!step) break;
       table = step.envelope;
     }
@@ -233,7 +242,7 @@ describe('the end of a round', () => {
     const finished = playToRoundEnd();
     expect(finished.lastResult).toBeNull();
 
-    const step = nextHostStep(finished, { aiIsReady: true });
+    const step = nextHostStep(finished, elapsed(finished));
     expect(step?.kind).toBe('score');
 
     const scored = step!.envelope;
@@ -243,11 +252,12 @@ describe('the end of a round', () => {
     expect(cardPoints).toBeLessThanOrEqual(100);
 
     // And it is not scored twice.
-    expect(nextHostStep(scored, { aiIsReady: true })?.kind).not.toBe('score');
+    expect(nextHostStep(scored, elapsed(scored))?.kind).not.toBe('score');
   });
 
   it('deals the next round only when somebody asks, and clears the old score', () => {
-    const scored = nextHostStep(playToRoundEnd(), { aiIsReady: true })!.envelope;
+    const ended = playToRoundEnd();
+    const scored = nextHostStep(ended, elapsed(ended))!.envelope;
     if (scored.lastResult!.gameOver) return; // a 100-point lead in one round; nothing to deal
 
     const next = dealNextRound(scored);
@@ -261,6 +271,44 @@ describe('the end of a round', () => {
 
   it('refuses to deal on from a round that has not been scored', () => {
     expect(() => dealNextRound(playToRoundEnd())).toThrow(/no finished round/i);
+  });
+});
+
+// A person gets ten seconds and then the authority plays for them. This is a deliberate,
+// Product-Owner-approved change to how a turn can end, so it is pinned precisely: not a moment
+// early, through the same engine, and marked as having been played on someone's behalf.
+describe('running out of time', () => {
+  it('leaves a person alone until their ten seconds are actually up', () => {
+    const table = runUntilHumanTurn(startTable(seated()));
+    expect(seatRecord(table, expectedActor(table)!)!.kind).toBe('human');
+    expect(nextHostStep(table, table.turnStartedAt + HUMAN_TURN_MS - 1)).toBeNull();
+  });
+
+  it('plays for them once the time is up, and says it did so on their behalf', () => {
+    const table = runUntilHumanTurn(startTable(seated()));
+    const seat = expectedActor(table)!;
+    const step = nextHostStep(table, table.turnStartedAt + HUMAN_TURN_MS);
+
+    expect(step?.kind).toBe('play');
+    if (step?.kind !== 'play') throw new Error('expected a play step');
+    expect(step.seat).toBe(seat);
+    expect(step.onBehalfOfPerson).toBe(true);
+    expect(step!.envelope.game).not.toEqual(table.game);
+    expect(step!.envelope.gameRevision).toBe(table.gameRevision + 1);
+  });
+
+  it('gives a person longer than a computer seat', () => {
+    expect(HUMAN_TURN_MS).toBeGreaterThan(AI_TURN_MS);
+    expect(HUMAN_TURN_MS).toBe(10_000);
+    expect(AI_TURN_MS).toBe(5_000);
+  });
+
+  it('restarts the clock on every move, so the next player gets their own full turn', () => {
+    const table = runUntilHumanTurn(startTable(seated()));
+    const played = nextHostStep(table, table.turnStartedAt + HUMAN_TURN_MS)!.envelope;
+    expect(played.turnStartedAt).toBe(table.turnStartedAt + HUMAN_TURN_MS);
+    // And the new actor is not already out of time.
+    expect(nextHostStep(played, played.turnStartedAt)).toBeNull();
   });
 });
 

@@ -4,8 +4,9 @@ import type { OpeningAction } from '../types';
 import type { NormalPlayMove } from '../engine/moveExecution';
 import {
   authoriseRequest,
-  awaitingAi,
   expectedActor,
+  seatRecord,
+  turnLimitMs,
   SEAT_ORDER,
   SEAT_NAMES
 } from './protocol';
@@ -39,12 +40,20 @@ function isAiSeat(envelope: TableEnvelope, seat: SeatId): boolean {
  * `gameRevision` advances only when the position itself changed — so a write that merely files or
  * clears a request doesn't invalidate a decision another player has already made.
  */
-function bump(envelope: TableEnvelope, patch: Partial<TableEnvelope>, gameMoved = false): TableEnvelope {
+function bump(
+  envelope: TableEnvelope,
+  patch: Partial<TableEnvelope>,
+  gameMoved = false,
+  now = Date.now()
+): TableEnvelope {
   return {
     ...envelope,
     ...patch,
     revision: envelope.revision + 1,
-    gameRevision: envelope.gameRevision + (gameMoved ? 1 : 0)
+    gameRevision: envelope.gameRevision + (gameMoved ? 1 : 0),
+    // A new turn starts exactly when the last one ended, and only then — so the clock everybody
+    // sees is the same clock, and a refresh doesn't quietly hand anyone a fresh ten seconds.
+    turnStartedAt: gameMoved ? now : envelope.turnStartedAt
   };
 }
 
@@ -56,7 +65,7 @@ function bump(envelope: TableEnvelope, patch: Partial<TableEnvelope>, gameMoved 
  * Once the second person has sat down, deal. The host does this rather than the joiner, so that
  * every byte of game state has exactly one author.
  */
-export function startTable(envelope: TableEnvelope, dealerSeat: SeatId = 'you'): TableEnvelope {
+export function startTable(envelope: TableEnvelope, dealerSeat: SeatId = 'you', now: number = Date.now()): TableEnvelope {
   const game = startRound({
     gameId: `baazi-${envelope.code}-${Date.now()}`,
     mode: '4player',
@@ -67,7 +76,7 @@ export function startTable(envelope: TableEnvelope, dealerSeat: SeatId = 'you'):
     dealerId: dealerSeat,
     gameLengthConfig: { type: 'leadTarget', points: 100 }
   });
-  return bump(envelope, { status: 'playing', game }, true);
+  return bump(envelope, { status: 'playing', game }, true, now);
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +94,7 @@ export type ApplyResult =
  * Both refusals are recorded the same way — the request is cleared and the reason is written where
  * the player who made it can see it — so a rejected action can never leave the table half-changed.
  */
-export function applyRequest(envelope: TableEnvelope, request: ActionRequest): ApplyResult {
+export function applyRequest(envelope: TableEnvelope, request: ActionRequest, now: number = Date.now()): ApplyResult {
   const allowed = authoriseRequest(envelope, request);
   if (!allowed.ok) {
     return {
@@ -103,7 +112,8 @@ export function applyRequest(envelope: TableEnvelope, request: ActionRequest): A
       envelope: bump(
         envelope,
         { game: next, request: null, lastAppliedRequestId: request.id, lastRejection: null },
-        true
+        true,
+        now
       )
     };
   } catch (error) {
@@ -136,77 +146,108 @@ export type HostStep =
   | { kind: 'deal'; envelope: TableEnvelope }
   | { kind: 'score'; envelope: TableEnvelope }
   | { kind: 'request'; envelope: TableEnvelope; applied: boolean; reason?: string }
-  | { kind: 'ai'; envelope: TableEnvelope; seat: SeatId }
+  /** A seat's time ran out and the authority played for it. `onBehalfOfPerson` is true when that
+   * seat belongs to a human — the deliberate, Product-Owner-approved behaviour, and the one case
+   * where a move is made by someone other than the player sitting there. */
+  | { kind: 'play'; envelope: TableEnvelope; seat: SeatId; onBehalfOfPerson: boolean }
   | null;
 
 /**
  * The round has run out of cards. Score it — once, by the authority — so both players are shown
  * the same numbers rather than each computing their own.
  */
-export function scoreRound(envelope: TableEnvelope): TableEnvelope {
+export function scoreRound(envelope: TableEnvelope, now: number = Date.now()): TableEnvelope {
   const result = completeRound(envelope.game!);
   return bump(envelope, {
     game: { ...envelope.game!, state: result.state },
     lastResult: result,
     status: result.gameOver ? 'finished' : 'playing'
-  });
+  }, false, now);
 }
 
 /**
  * Deal again after the scores have been read. Host-only and deliberate: nobody wants the next hand
  * landing on top of a score they were still looking at.
  */
-export function dealNextRound(envelope: TableEnvelope): TableEnvelope {
+export function dealNextRound(envelope: TableEnvelope, now: number = Date.now()): TableEnvelope {
   const result = envelope.lastResult;
   if (!result) throw new Error('There is no finished round to deal on from.');
   if (result.gameOver) throw new Error('The game is over.');
-  return bump(envelope, { game: startNextRound(envelope.game!, result), lastResult: null }, true);
+  return bump(envelope, { game: startNextRound(envelope.game!, result), lastResult: null }, true, now);
 }
 
 /**
- * Given the table as it stands, what should the authority do next? One step at a time, in priority
- * order, so a tick can never produce two changes at once and every change gets its own revision.
+ * Given the table as it stands and the time it is now, what should the authority do next? One step
+ * at a time, in priority order, so a tick can never produce two changes at once and every change
+ * gets its own revision.
  *
- * `aiIsReady` lets the caller hold an AI move back — the host browser uses it to leave a pause so
- * the play can actually be watched. It is a pacing decision, not a rules one, which is why it comes
- * in as a parameter rather than being read from a clock in here.
+ * Time is a PARAMETER, not something read from a clock in here, so this stays a pure function of
+ * (table, now) — which is what lets it be tested exactly and what lets it move to a server later.
  */
-export function nextHostStep(envelope: TableEnvelope, options: { aiIsReady: boolean } = { aiIsReady: true }): HostStep {
+export function nextHostStep(envelope: TableEnvelope, now: number = Date.now()): HostStep {
   if (envelope.status === 'ready' && !envelope.game) {
-    return { kind: 'deal', envelope: startTable(envelope) };
+    return { kind: 'deal', envelope: startTable(envelope, 'you', now) };
   }
   if (envelope.status !== 'playing' || !envelope.game) return null;
 
   // Scoring comes before anything else once the cards run out: there is nothing left to play, and
   // both screens are waiting to be told what the round was worth.
   if (envelope.game.state.phase === 'roundEnd' && !envelope.lastResult) {
-    return { kind: 'score', envelope: scoreRound(envelope) };
+    return { kind: 'score', envelope: scoreRound(envelope, now) };
   }
 
   if (envelope.request) {
-    const result = applyRequest(envelope, envelope.request);
-    return { kind: 'request', envelope: result.envelope, applied: result.applied, reason: result.applied ? undefined : result.reason };
+    const result = applyRequest(envelope, envelope.request, now);
+    return {
+      kind: 'request',
+      envelope: result.envelope,
+      applied: result.applied,
+      reason: result.applied ? undefined : result.reason
+    };
   }
 
-  const aiSeat = awaitingAi(envelope);
-  if (aiSeat && options.aiIsReady) {
-    return { kind: 'ai', seat: aiSeat, envelope: playAiTurn(envelope, aiSeat) };
-  }
+  // One rule, two speeds. A seat gets its allotted time and then the authority plays for it: five
+  // seconds for a computer seat, which is the pause that always made its play watchable, and ten
+  // for a person. Running the two through the same path is what keeps the countdown on screen
+  // honest — the ring empties exactly when the move lands.
+  const actor = expectedActor(envelope);
+  if (!actor) return null;
+  if (now - envelope.turnStartedAt < turnLimitMs(envelope, actor)) return null;
 
-  return null;
+  return {
+    kind: 'play',
+    seat: actor,
+    onBehalfOfPerson: seatRecord(envelope, actor)?.kind === 'human',
+    envelope: playTurnFor(envelope, actor, now)
+  };
 }
 
 /**
- * An AI seat's turn, decided once by the authority and written once — never worked out separately
- * inside each watching browser, which would let two people see two different games.
+ * Take a seat's turn with the strategy module, through the engine.
+ *
+ * The strategy has always been seat-agnostic — it takes (game, playerId) — so the same code plays a
+ * computer seat and stands in for a person whose time ran out. There is no separate "auto-play"
+ * implementation, and no second opinion about what a good move is.
  */
-export function playAiTurn(envelope: TableEnvelope, seat: SeatId): TableEnvelope {
+export function playTurnFor(envelope: TableEnvelope, seat: SeatId, now: number = Date.now()): TableEnvelope {
   const game = envelope.game!;
-  if (!isAiSeat(envelope, seat)) throw new Error(`Seat ${seat} is not played by the computer.`);
   if (expectedActor(envelope) !== seat) throw new Error(`It is not ${seat}'s turn.`);
 
   const phase = game.state.phase;
-  if (phase === 'bidding') return bump(envelope, { game: submitBid(game, seat, botChooseBid(game, seat)) }, true);
-  if (phase === 'revealing') return bump(envelope, { game: submitOpeningAction(game, seat, botChooseOpeningAction(game, seat)) }, true);
-  return bump(envelope, { game: submitMove(game, seat, botChooseMove(game, seat)) }, true);
+  if (phase === 'bidding') return bump(envelope, { game: submitBid(game, seat, botChooseBid(game, seat)) }, true, now);
+  if (phase === 'revealing') {
+    return bump(envelope, { game: submitOpeningAction(game, seat, botChooseOpeningAction(game, seat)) }, true, now);
+  }
+  return bump(envelope, { game: submitMove(game, seat, botChooseMove(game, seat)) }, true, now);
+}
+
+/**
+ * A computer seat's turn, decided once by the authority and written once — never worked out
+ * separately inside each watching browser, which would let two people see two different games.
+ * Refuses a seat somebody is actually sitting in; timing a person out goes through nextHostStep,
+ * which is the only place that decision is allowed to be made.
+ */
+export function playAiTurn(envelope: TableEnvelope, seat: SeatId, now: number = Date.now()): TableEnvelope {
+  if (!isAiSeat(envelope, seat)) throw new Error(`Seat ${seat} is not played by the computer.`);
+  return playTurnFor(envelope, seat, now);
 }

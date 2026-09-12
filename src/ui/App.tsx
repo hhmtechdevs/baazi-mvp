@@ -3,7 +3,7 @@ import { TableView } from './TableView';
 import { HUMAN_ID, OPPONENT_NAME, useBaaziGame } from './useBaaziGame';
 import { useMultiplayerTable } from './useMultiplayerTable';
 import type { MultiplayerTable } from './useMultiplayerTable';
-import { expectedActor, seatRecord } from '../multiplayer/protocol';
+import { expectedActor, seatRecord, turnLimitMs } from '../multiplayer/protocol';
 import { codeFromUrl, inviteUrl } from '../multiplayer/session';
 import { isSupabaseConfigured } from '../supabase';
 import type { GameLengthConfig } from '../engine/roundOrchestrator';
@@ -277,6 +277,10 @@ function SharedGame({ table, onLeave }: { table: MultiplayerTable; onLeave: () =
       roundComplete={false}
       lastRoundResult={envelope.lastResult}
       onNextRound={table.dealNext ?? undefined}
+      onLeave={onLeave}
+      tableCode={envelope.code}
+      turnStartedAt={envelope.turnStartedAt || undefined}
+      turnLimitMs={actor ? turnLimitMs(envelope, actor) : undefined}
       notice={
         table.error ? (
           <div className="baazi-interlude baazi-interlude-quiet">
@@ -291,6 +295,28 @@ function SharedGame({ table, onLeave }: { table: MultiplayerTable; onLeave: () =
 /** The code, and nothing else worth reading. */
 function WaitingRoom({ code, onLeave }: { code: string; onLeave: () => void }) {
   const [copied, setCopied] = useState(false);
+  // navigator.share only exists on devices that can actually hand this to another app — a phone's
+  // share sheet, straight into Messages or WhatsApp. On a desktop browser it usually doesn't, so
+  // copying stays the thing that always works rather than the thing you fall back to.
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  const share = async () => {
+    const url = inviteUrl(code);
+    try {
+      await navigator.share({ title: 'Baazi', text: `Join my Baazi game — code ${code}`, url });
+    } catch {
+      /* dismissed the share sheet, or it refused — nothing to report, the code is still on screen */
+    }
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteUrl(code));
+      setCopied(true);
+    } catch {
+      /* clipboard blocked — the code is on screen to read out, which is the point of it */
+    }
+  };
 
   return (
     <div className="baazi-app baazi-blanket baazi-waiting">
@@ -298,12 +324,16 @@ function WaitingRoom({ code, onLeave }: { code: string; onLeave: () => void }) {
         <span className="baazi-waiting-label">Your game code</span>
         <span className="baazi-waiting-code">{code}</span>
         <span className="baazi-waiting-note">Waiting for Partner…</span>
-        <button
-          className="baazi-waiting-link"
-          onClick={() => void navigator.clipboard?.writeText(inviteUrl(code)).then(() => setCopied(true))}
-        >
-          {copied ? 'Link copied' : 'Copy invite link'}
-        </button>
+        <div className="baazi-waiting-actions">
+          {canShare && (
+            <button className="baazi-waiting-link is-primary" onClick={() => void share()}>
+              Share link
+            </button>
+          )}
+          <button className="baazi-waiting-link" onClick={() => void copy()}>
+            {copied ? 'Link copied' : 'Copy link'}
+          </button>
+        </div>
         <button className="baazi-back-link baazi-waiting-leave" onClick={onLeave}>
           ← Leave
         </button>

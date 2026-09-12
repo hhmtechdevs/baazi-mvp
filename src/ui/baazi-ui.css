@@ -265,8 +265,13 @@ body {
   margin-top: 4px;
 }
 
-.baazi-waiting-link {
+.baazi-waiting-actions {
+  display: flex;
+  gap: 8px;
   margin-top: 14px;
+}
+
+.baazi-waiting-link {
   padding: 8px 14px;
   border-radius: 10px;
   border: 1px solid var(--baazi-keyline);
@@ -278,6 +283,19 @@ body {
 
 .baazi-waiting-link:hover {
   background: rgba(255, 255, 255, 0.07);
+}
+
+/* Sharing is the thing you actually came here to do on a phone, so it leads. */
+.baazi-waiting-link.is-primary {
+  background: var(--baazi-accent);
+  border-color: var(--baazi-accent);
+  color: #2c1e0c;
+  font-weight: 600;
+}
+
+.baazi-waiting-link.is-primary:hover {
+  filter: brightness(1.05);
+  background: var(--baazi-accent);
 }
 
 .baazi-waiting-leave {
@@ -323,7 +341,9 @@ body {
 
 .baazi-topbar-end {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 8px;
 }
 
 .baazi-scoreline {
@@ -355,6 +375,37 @@ body {
 .baazi-side-round {
   font-size: 11px;
   opacity: 0.72;
+}
+
+/* Getting up from the table, and the code you need to sit back down.
+
+   Both live quietly at the top-right, beside the call badge — present when you look for them,
+   invisible when you're playing. Leaving is not destructive: it forgets the table on THIS device
+   only, so the code beside it is the whole way back in. That is exactly why the code stays on
+   screen: nobody memorises four characters they saw once, five minutes ago. */
+.baazi-table-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: rgba(250, 247, 240, 0.55);
+  user-select: all;
+}
+
+.baazi-table-leave {
+  padding: 4px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--baazi-keyline);
+  background: var(--baazi-shade);
+  color: rgba(250, 247, 240, 0.75);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-shadow: none;
+}
+
+.baazi-table-leave:hover {
+  background: var(--baazi-shade-strong);
+  color: var(--baazi-cream);
 }
 
 .baazi-call-badge {
@@ -506,6 +557,38 @@ body {
   background: rgba(20, 33, 17, 0.8);
   border-color: rgba(239, 227, 204, 0.34);
   box-shadow: 0 9px 20px rgba(0, 0, 0, 0.46);
+}
+
+/* The turn clock, drawn as the nameplate's own border.
+
+   A conic gradient starting at twelve o'clock, filled for however much of the turn is left, then
+   masked down to just the border ring — so the gold outline is literally consumed clockwise as the
+   time goes. It reads as the seat running out rather than as a widget counting down, which is why
+   it lives on the nameplate instead of anywhere else on the table.
+
+   --turn-left is set per frame from the turn's start time, which is written on the table itself, so
+   both players' rings empty together. */
+.baazi-player-chip.has-clock::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(
+    from 0deg,
+    var(--baazi-accent) 0turn,
+    var(--baazi-accent) calc(var(--turn-left, 1) * 1turn),
+    transparent calc(var(--turn-left, 1) * 1turn)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.baazi-player-chip {
+  position: relative;
 }
 
 .baazi-player-name {
@@ -1052,6 +1135,49 @@ body {
 @media (max-width: 560px) {
   .baazi-app {
     padding: 8px 8px 10px;
+  }
+
+  /* Whose turn it is is the single most important line on the screen, and three columns cannot
+     share 375px. So on a phone the bar becomes two rows: the turn gets a full-width row of its own
+     with the small controls beside it, and the score drops underneath. Previously the status was
+     being squeezed into a 36px column and wrapping into four unreadable lines. */
+  .baazi-topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'status end'
+      'scores scores';
+    row-gap: 3px;
+  }
+
+  .baazi-status {
+    grid-area: status;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  .baazi-topbar-end {
+    grid-area: end;
+    gap: 6px;
+  }
+
+  .baazi-scoreline {
+    grid-area: scores;
+  }
+
+  .baazi-table-code {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+
+  .baazi-table-leave {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+
+  .baazi-call-badge {
+    padding: 4px 8px;
+    font-size: 11px;
   }
 
   .baazi-table {
