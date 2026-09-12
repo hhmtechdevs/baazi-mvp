@@ -25,6 +25,16 @@ export type SeatId = (typeof SEAT_ORDER)[number];
 export const HOST_SEAT: SeatId = 'you';
 export const GUEST_SEAT: SeatId = 'partner';
 
+/**
+ * The order open seats are handed out — which is NOT the engine's seat order.
+ *
+ * The engine pairs seats 0+2 and 1+3, so filling in engine order would put the second person to
+ * arrive on the OPPOSING team. Seating them opposite the host instead means two people are always
+ * partners, three are two against one, and four are two against two — the arrangement people
+ * expect at every table size, rather than one that depends on who clicked first.
+ */
+const JOIN_ORDER: SeatId[] = ['you', 'partner', 'left', 'right'];
+
 export interface SeatRecord {
   seat: SeatId;
   name: string;
@@ -129,18 +139,20 @@ export function normaliseCode(input: string): string | null {
 /**
  * What a seat is called when nobody has given it a name.
  *
- * Both human seats default to "Partner", which is not a placeholder — it is what each of them
- * actually is to the other. Every player renders their OWN seat as "You", so the person across the
- * blanket reads as "Partner" from either chair, and the table is symmetric without either browser
- * having to know who is who.
+ * Deliberately numbers rather than positions. "Left" and "Right" were fine while those seats were
+ * played by the computer, but they are relative words stored as absolute names: the player in the
+ * `left` seat is on the host's left and on the opposite player's RIGHT. With four people at the
+ * table that is simply wrong from two of the four chairs — the same class of mistake as storing
+ * "You" as a name.
  *
- * The seat ids themselves stay as the engine's ('you', 'partner'); only the label is relative.
+ * A number is true from every seat. Anyone who types a name replaces it, which is the intended
+ * path; this is only what you get when nobody bothers.
  */
 export const SEAT_NAMES: Record<SeatId, string> = {
-  you: 'Partner',
-  left: 'Left',
-  partner: 'Partner',
-  right: 'Right'
+  you: 'Player 1',
+  left: 'Player 2',
+  partner: 'Player 3',
+  right: 'Player 4'
 };
 
 export function createEnvelope(code: string, hostSessionId: string, hostName?: string): TableEnvelope {
@@ -152,10 +164,13 @@ export function createEnvelope(code: string, hostSessionId: string, hostName?: s
     status: 'waiting',
     code,
     hostSessionId,
+    // All four seats start open to people. Whoever hasn't turned up by the time the host starts
+    // becomes a computer seat (see host.startTable) — so one flow covers two players, three, or a
+    // full table, instead of the seating being decided before anyone has arrived.
     seats: SEAT_ORDER.map(seat => ({
       seat,
       name: seat === HOST_SEAT ? hostName?.trim() || SEAT_NAMES[seat] : SEAT_NAMES[seat],
-      kind: seat === HOST_SEAT || seat === GUEST_SEAT ? 'human' : 'ai',
+      kind: 'human',
       sessionId: seat === HOST_SEAT ? hostSessionId : null
     })),
     game: null,
@@ -198,20 +213,40 @@ export function claimSeat(envelope: TableEnvelope, sessionId: string, name?: str
   const existing = seatOf(envelope, sessionId);
   if (existing) return { ok: true, envelope, seat: existing, rejoined: true };
 
-  const open = envelope.seats.find(s => s.kind === 'human' && s.sessionId === null);
+  const open = JOIN_ORDER.map(seat => seatRecord(envelope, seat)).find(
+    s => s && s.kind === 'human' && s.sessionId === null
+  );
   if (!open) return { ok: false, reason: 'That table is full.' };
 
   const seats = envelope.seats.map(s =>
     s.seat === open.seat ? { ...s, sessionId, name: name?.trim() || s.name } : s
   );
-  // 'ready' tells the host to deal. The host, not the joiner, starts the round — one writer owns
-  // every piece of game state.
+  // 'ready' tells the host to deal, and is only reached when no seat is still waiting on a person.
+  // Below that, the host decides when to start — otherwise a four-handed table would deal itself
+  // the moment the second person sat down. The host, not the joiner, always starts the round: one
+  // writer owns every piece of game state.
+  const stillOpen = seats.some(s => s.kind === 'human' && s.sessionId === null);
   return {
     ok: true,
     seat: open.seat,
     rejoined: false,
-    envelope: { ...envelope, seats, status: 'ready', revision: envelope.revision + 1 }
+    envelope: {
+      ...envelope,
+      seats,
+      status: stillOpen ? envelope.status : 'ready',
+      revision: envelope.revision + 1
+    }
   };
+}
+
+/** Seats still waiting on a person to sit down. */
+export function openHumanSeats(envelope: TableEnvelope): SeatRecord[] {
+  return envelope.seats.filter(s => s.kind === 'human' && s.sessionId === null);
+}
+
+/** Everyone who has actually sat down. */
+export function seatedPeople(envelope: TableEnvelope): SeatRecord[] {
+  return envelope.seats.filter(s => s.sessionId !== null);
 }
 
 // ---------------------------------------------------------------------------

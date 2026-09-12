@@ -62,21 +62,29 @@ function bump(
 // ---------------------------------------------------------------------------
 
 /**
- * Once the second person has sat down, deal. The host does this rather than the joiner, so that
- * every byte of game state has exactly one author.
+ * Deal. The host does this rather than a joiner, so that every byte of game state has exactly one
+ * author.
+ *
+ * This is also the moment the table's composition is settled: any seat still waiting on a person
+ * becomes a computer seat, played by the same strategy from then on. That is what lets one flow
+ * cover two people against two computers, three against one, or four people and none — nobody has
+ * to decide the shape of the game before they know who turned up.
  */
 export function startTable(envelope: TableEnvelope, dealerSeat: SeatId = 'you', now: number = Date.now()): TableEnvelope {
+  const seats = envelope.seats.map(seat =>
+    seat.kind === 'human' && seat.sessionId === null ? { ...seat, kind: 'ai' as const } : seat
+  );
   const game = startRound({
     gameId: `baazi-${envelope.code}-${Date.now()}`,
     mode: '4player',
     players: SEAT_ORDER.map(seat => ({
       id: seat,
-      name: envelope.seats.find(s => s.seat === seat)?.name ?? SEAT_NAMES[seat]
+      name: seats.find(s => s.seat === seat)?.name ?? SEAT_NAMES[seat]
     })),
     dealerId: dealerSeat,
     gameLengthConfig: { type: 'leadTarget', points: 100 }
   });
-  return bump(envelope, { status: 'playing', game }, true, now);
+  return bump(envelope, { seats, status: 'playing', game }, true, now);
 }
 
 // ---------------------------------------------------------------------------

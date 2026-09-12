@@ -14,6 +14,18 @@ function seated(): TableEnvelope {
   return claim.envelope;
 }
 
+/** All four chairs taken, which is the only state that deals by itself. Below four, the host
+ * decides when to start (see startTable). */
+function fullTable(): TableEnvelope {
+  let table = seated();
+  for (const [id, name] of [['s3', 'Ash'], ['s4', 'Bee']] as const) {
+    const claim = claimSeat(table, id, name);
+    if (!claim.ok) throw new Error('fixture: could not fill the table');
+    table = claim.envelope;
+  }
+  return table;
+}
+
 /** A moment well past the current turn's allowance, so the authority will act on it. Passing time
  * in explicitly is what makes these tests exact rather than dependent on a real clock. */
 function elapsed(env: TableEnvelope): number {
@@ -46,14 +58,21 @@ function runUntilHumanTurn(start: TableEnvelope, limit = 200): TableEnvelope {
 }
 
 describe('the host deals, once, when the table is full', () => {
-  it('deals a four-handed round with the seats it was given', () => {
-    const seatedNow = seated();
-    const step = nextHostStep(seatedNow, elapsed(seatedNow));
+  it('deals a four-handed round once the last chair is taken', () => {
+    const full = fullTable();
+    const step = nextHostStep(full, elapsed(full));
     expect(step?.kind).toBe('deal');
     const game = step!.envelope.game!;
     expect(game.state.mode).toBe('4player');
     expect(game.state.players.map(p => p.id)).toEqual(['you', 'left', 'partner', 'right']);
     expect(step!.envelope.status).toBe('playing');
+    // Four people turned up, so nothing was handed to the computer.
+    expect(step!.envelope.seats.every(x => x.kind === 'human')).toBe(true);
+  });
+
+  it('does not deal itself while a chair could still fill', () => {
+    const two = seated();
+    expect(nextHostStep(two, elapsed(two))).toBeNull();
   });
 
   it('does not deal again once there is a game', () => {
@@ -67,7 +86,7 @@ describe('the host deals, once, when the table is full', () => {
   });
 
   it('gives every authoritative change its own revision', () => {
-    const before = seated();
+    const before = fullTable();
     const after = nextHostStep(before, elapsed(before))!.envelope;
     expect(after.revision).toBe(before.revision + 1);
   });

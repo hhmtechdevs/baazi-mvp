@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createTable, loadTable, saveTable, watchTable } from '../multiplayer/store';
-import { dealNextRound, nextHostStep } from '../multiplayer/host';
+import { dealNextRound, nextHostStep, startTable } from '../multiplayer/host';
 import { claimSeat, expectedActor, normaliseCode, seatOf } from '../multiplayer/protocol';
 import type { ActionRequest, SeatId, TableEnvelope } from '../multiplayer/protocol';
 import { codeFromUrl, forgetTable, lastTable, rememberTable, sessionId } from '../multiplayer/session';
@@ -48,6 +48,9 @@ export interface MultiplayerTable {
   /** Host only — deals the next round once the scores have been read. Null for everyone else, so
    * the button simply isn't there rather than being there and refusing. */
   dealNext: (() => void) | null;
+  /** Host only — starts the game without waiting for the remaining seats to fill. Null for
+   * everyone else, and null once there is a game. */
+  startNow: (() => void) | null;
   isMyTurn: boolean;
 }
 
@@ -60,7 +63,9 @@ export function useMultiplayerTable(): MultiplayerTable {
   const [phase, setPhase] = useState<TablePhase>('idle');
   const [envelope, setEnvelope] = useState<TableEnvelope | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [suggestedCode] = useState<string | null>(() => codeFromUrl() ?? lastTable());
+  // Cleared on leaving, so the Family door doesn't keep offering to rejoin a table you just got up
+  // from — which sent you to the join form with a stale code pre-filled instead of the front door.
+  const [suggestedCode, setSuggestedCode] = useState<string | null>(() => codeFromUrl() ?? lastTable());
 
   // The envelope the host loop is currently reasoning about. Kept in a ref as well as state so the
   // loop always acts on the latest table rather than whatever a closure captured.
@@ -238,6 +243,7 @@ export function useMultiplayerTable(): MultiplayerTable {
 
   const leave = useCallback(() => {
     forgetTable();
+    setSuggestedCode(null);
     current.current = null;
     setEnvelope(null);
     setError(null);
@@ -280,6 +286,19 @@ export function useMultiplayerTable(): MultiplayerTable {
     [me, mySeat, adopt]
   );
 
+  const startNow = useCallback(() => {
+    void (async () => {
+      const table = current.current;
+      if (!table || table.hostSessionId !== me || table.game) return;
+      const result = await saveTable(startTable(table, 'you', Date.now()), table.revision);
+      if (result.ok) adopt(result.envelope);
+      else if (result.conflict) {
+        const fresh = await loadTable(table.code);
+        if (fresh) adopt(fresh);
+      }
+    })();
+  }, [me, adopt]);
+
   const dealNext = useCallback(() => {
     void (async () => {
       const table = current.current;
@@ -301,6 +320,7 @@ export function useMultiplayerTable(): MultiplayerTable {
     error,
     suggestedCode,
     dealNext: isHost && envelope?.lastResult && !envelope.lastResult.gameOver ? dealNext : null,
+    startNow: isHost && envelope && !envelope.game ? startNow : null,
     create,
     join,
     leave,

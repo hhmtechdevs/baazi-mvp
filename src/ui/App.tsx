@@ -260,7 +260,7 @@ function SharedGame({ table, onLeave }: { table: MultiplayerTable; onLeave: () =
     );
   }
 
-  if (!envelope.game) return <WaitingRoom code={envelope.code} onLeave={onLeave} />;
+  if (!envelope.game) return <WaitingRoom table={table} onLeave={onLeave} />;
 
   const actor = expectedActor(envelope);
   const thinking = actor && seatRecord(envelope, actor)?.kind === 'ai' ? actor : null;
@@ -292,8 +292,12 @@ function SharedGame({ table, onLeave }: { table: MultiplayerTable; onLeave: () =
   );
 }
 
-/** The code, and nothing else worth reading. */
-function WaitingRoom({ code, onLeave }: { code: string; onLeave: () => void }) {
+/** The code, who has turned up, and the one button that starts it. */
+function WaitingRoom({ table, onLeave }: { table: MultiplayerTable; onLeave: () => void }) {
+  const code = table.envelope!.code;
+  const seats = table.envelope!.seats;
+  const here = seats.filter(s => s.sessionId !== null);
+  const waiting = seats.length - here.length;
   const [copied, setCopied] = useState(false);
   // navigator.share only exists on devices that can actually hand this to another app — a phone's
   // share sheet, straight into Messages or WhatsApp. On a desktop browser it usually doesn't, so
@@ -323,7 +327,25 @@ function WaitingRoom({ code, onLeave }: { code: string; onLeave: () => void }) {
       <div className="baazi-waiting-card">
         <span className="baazi-waiting-label">Your game code</span>
         <span className="baazi-waiting-code">{code}</span>
-        <span className="baazi-waiting-note">Waiting for Partner…</span>
+        <ul className="baazi-waiting-seats">
+          {seats.map(seat => (
+            <li key={seat.seat} className={seat.sessionId ? 'is-here' : ''}>
+              {seat.sessionId ? (seat.seat === table.mySeat ? `${seat.name} (you)` : seat.name) : 'Empty seat'}
+            </li>
+          ))}
+        </ul>
+
+        <span className="baazi-waiting-note">
+          {waiting === 0
+            ? 'Everyone’s here — dealing…'
+            : `${here.length} of ${seats.length} here. Share the code, or start now and the rest are played by the computer.`}
+        </span>
+
+        {table.startNow && waiting > 0 && (
+          <button className="baazi-primary-button baazi-waiting-start" onClick={table.startNow}>
+            Start with {here.length}
+          </button>
+        )}
         <div className="baazi-waiting-actions">
           {canShare && (
             <button className="baazi-waiting-link is-primary" onClick={() => void share()}>

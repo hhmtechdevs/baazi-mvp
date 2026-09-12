@@ -273,6 +273,43 @@ body {
   margin-top: 4px;
 }
 
+/* Who has turned up. A plain list, so the thing you're waiting for is obvious at a glance without
+   anyone needing to count chairs. */
+.baazi-waiting-seats {
+  list-style: none;
+  margin: 14px 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: rgba(250, 247, 240, 0.35);
+}
+
+.baazi-waiting-seats li.is-here {
+  color: var(--baazi-cream);
+}
+
+.baazi-waiting-seats li.is-here::before {
+  content: '\2022  ';
+  color: var(--baazi-accent);
+}
+
+.baazi-waiting-seats li:not(.is-here)::before {
+  content: '\25E6  ';
+}
+
+.baazi-waiting-note {
+  max-width: 30ch;
+}
+
+.baazi-waiting-start {
+  width: auto;
+  margin-top: 14px;
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
 .baazi-waiting-actions {
   display: flex;
   gap: 8px;

@@ -67,10 +67,11 @@ describe('room codes are things a person says out loud', () => {
 });
 
 describe('the table seats two people against two computer players', () => {
-  it('puts the host in a human seat straight away and leaves one open', () => {
+  it('seats the host and leaves every other seat open to a person', () => {
     const table = waiting();
     expect(seatOf(table, HOST)).toBe(HOST_SEAT);
-    expect(table.seats.filter(s => s.kind === 'human' && s.sessionId === null)).toHaveLength(1);
+    // All four are open to people now; whoever hasn't arrived by kick-off becomes a computer seat.
+    expect(table.seats.filter(s => s.kind === 'human' && s.sessionId === null)).toHaveLength(3);
     expect(table.status).toBe('waiting');
   });
 
@@ -79,11 +80,33 @@ describe('the table seats two people against two computer players', () => {
     expect(claim.ok && claim.seat).toBe(GUEST_SEAT);
   });
 
-  it('leaves Left and Right to the computer, and no session may hold them', () => {
-    const table = seated();
+  it('turns the seats nobody took into computer seats when the game starts', () => {
+    const table = startTable(seated());
     expect(seatRecord(table, 'left')!.kind).toBe('ai');
     expect(seatRecord(table, 'right')!.kind).toBe('ai');
     expect(table.seats.filter(s => s.kind === 'ai').every(s => s.sessionId === null)).toBe(true);
+    // And the people who did turn up keep their seats.
+    expect(seatRecord(table, 'you')!.kind).toBe('human');
+    expect(seatRecord(table, GUEST_SEAT)!.kind).toBe('human');
+  });
+
+  it('keeps a seat human when somebody is actually in it', () => {
+    let table = seated();
+    const third = claimSeat(table, 'session-third', 'Ash');
+    expect(third.ok && third.seat).toBe('left');
+    table = startTable((third as { envelope: TableEnvelope }).envelope);
+    expect(seatRecord(table, 'left')!.kind).toBe('human');
+    expect(seatRecord(table, 'right')!.kind).toBe('ai');
+  });
+
+  it('fills seats so partners are partners at every table size', () => {
+    // Two people are on the same team; a third joins the opposition, not the host's side.
+    const two = seated();
+    expect(seatOf(two, GUEST)).toBe('partner');
+    const three = claimSeat(two, 'session-third', 'Ash');
+    expect(three.ok && three.seat).toBe('left');
+    const four = three.ok ? claimSeat(three.envelope, 'session-fourth', 'Bee') : null;
+    expect(four?.ok && four.seat).toBe('right');
   });
 
   // The engine pairs seats 0+2 and 1+3, and only writes those teams during the main deal. So the
@@ -91,7 +114,7 @@ describe('the table seats two people against two computer players', () => {
   // 1 and 3. That the engine then pairs them as intended is asserted in host.test.ts, on a round
   // played far enough for the teams to exist.
   it('orders the seats so the two humans land on one team and the computers on the other', () => {
-    const seats = seated().seats;
+    const seats = startTable(seated()).seats;
     expect(seats.map(s => s.seat)).toEqual(['you', 'left', 'partner', 'right']);
     expect([seats[0].kind, seats[2].kind]).toEqual(['human', 'human']);
     expect([seats[1].kind, seats[3].kind]).toEqual(['ai', 'ai']);
@@ -101,10 +124,16 @@ describe('the table seats two people against two computer players', () => {
     expect(seatRecord(seated(), GUEST_SEAT)!.name).toBe('Sydney');
   });
 
-  it('refuses a third person — the human seats are gone', () => {
-    const claim = claimSeat(seated(), STRANGER, 'Nosy');
-    expect(claim.ok).toBe(false);
-    expect(claim.ok === false && claim.reason).toMatch(/full/i);
+  it('refuses a fifth person — there are only four chairs', () => {
+    let table = seated();
+    for (const [id, name] of [['s3', 'Ash'], ['s4', 'Bee']] as const) {
+      const claim = claimSeat(table, id, name);
+      expect(claim.ok).toBe(true);
+      if (claim.ok) table = claim.envelope;
+    }
+    const fifth = claimSeat(table, STRANGER, 'Nosy');
+    expect(fifth.ok).toBe(false);
+    expect(fifth.ok === false && fifth.reason).toMatch(/full/i);
   });
 
   it('gives a returning player their own seat back rather than a new one', () => {
@@ -115,8 +144,19 @@ describe('the table seats two people against two computer players', () => {
     expect(again.ok && again.envelope.revision).toBe(table.revision); // nothing was written
   });
 
-  it('asks the host to deal once somebody has sat down', () => {
-    expect(seated().status).toBe('ready');
+  it('waits rather than dealing while a seat could still fill', () => {
+    // Two of four: the host decides when to start, otherwise a four-handed table would deal itself
+    // the moment the second person sat down.
+    expect(seated().status).toBe('waiting');
+  });
+
+  it('is ready to deal the moment the last chair is taken', () => {
+    let table = seated();
+    for (const [id, name] of [['s3', 'Ash'], ['s4', 'Bee']] as const) {
+      const claim = claimSeat(table, id, name);
+      if (claim.ok) table = claim.envelope;
+    }
+    expect(table.status).toBe('ready');
   });
 });
 
