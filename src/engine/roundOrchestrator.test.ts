@@ -298,6 +298,37 @@ describe('fixed N rounds, chained through real play', () => {
     }
   });
 
+  it('N=3 continues after rounds 1 and 2, ends after round 3, and accumulates all three', () => {
+    let game = startRound({
+      gameId: 'n3', mode: '2player',
+      players: [{ id: 'A', name: 'A' }, { id: 'B', name: 'B' }],
+      dealerId: 'A',
+      gameLengthConfig: { type: 'fixedRounds', rounds: 3 }
+    });
+
+    const perRound: Record<string, number>[] = [];
+    for (let round = 1; round <= 3; round++) {
+      expect(game.state.roundNumber).toBe(round);
+      game = playRoundToRoundEnd(game);
+      const result = completeRound(game);
+      perRound.push(Object.fromEntries(Object.entries(result.breakdown).map(([side, b]) => [side, b.total])));
+
+      if (round < 3) {
+        expect(result.gameOver).toBe(false); // must not end before the third round is complete
+        game = startNextRound(game, result);
+        expect(game.state.players.every(p => p.captured.length === 0)).toBe(true);
+        continue;
+      }
+
+      expect(result.gameOver).toBe(true);
+      expect(result.state.phase).toBe('gameEnd');
+      expect(() => startNextRound(game, result)).toThrow(); // no fourth round
+      for (const side of Object.keys(result.state.scores)) {
+        expect(result.state.scores[side]).toBe(perRound.reduce((sum, r) => sum + (r[side] ?? 0), 0));
+      }
+    }
+  });
+
   it('a tied final round is a draw, and startNextRound refuses to run once the game has ended', () => {
     // Directly constructed at 'roundEnd' — a real played-out round's exact score can't be
     // controlled to land on a tie, so this exercises the tie/draw behavior deterministically,

@@ -73,14 +73,47 @@ describe('submitOpeningAction — build', () => {
     ).toThrow(/totals 8/);
   });
 
+  // This test is about KEY RETENTION. It originally used a lone J as its fixture; under the Product
+  // Owner's post-freeze correction a lone J is no longer a build at all, so it would now be refused
+  // for a different reason and silently stop testing retention. The fixture is a genuine combined
+  // build instead (5 + 6 = 11), so retention stays covered — and the lone-card rule gets its own
+  // tests below rather than borrowing this one.
   it('rejects a build that would consume the only matching capture card', () => {
-    const j = card('J', 'hearts'); // rank 11, same as the bid
+    const five = card('5', 'hearts');
+    const seven = card('7', 'clubs'); // nothing left in hand is worth 11 after the build
+    const six = card('6', 'spades');
     const state = makeState({
-      bidderHand: [j],
-      floorLoose: [card('2', 'clubs'), card('3', 'diamonds'), card('6', 'spades')],
+      bidderHand: [five, seven],
+      floorLoose: [card('2', 'clubs'), card('3', 'diamonds'), six],
       bidValue: 11
     });
-    expect(() => submitOpeningAction(state, 'bidder', { type: 'build', builderCardId: j.id, floorCardIds: [] })).toThrow(/retained/);
+    expect(() =>
+      submitOpeningAction(state, 'bidder', { type: 'build', builderCardId: five.id, floorCardIds: [six.id] })
+    ).toThrow(/retained/);
+  });
+
+  it('rejects a lone 9, 10, J or Q as an opening build — alone it is a loose card, not a house', () => {
+    const cases: [Card['rank'], number][] = [['9', 9], ['10', 10], ['J', 11], ['Q', 12]];
+    for (const [rank, bid] of cases) {
+      const played = card(rank, 'hearts');
+      const twin = card(rank, 'clubs'); // retained, so key retention is not what refuses it
+      const state = makeState({ bidderHand: [played, twin], floorLoose: [card('2', 'clubs')], bidValue: bid });
+      expect(() =>
+        submitOpeningAction(state, 'bidder', { type: 'build', builderCardId: played.id, floorCardIds: [] })
+      ).toThrow(/loose card, not a house/);
+    }
+  });
+
+  // REPLACED — Product Owner, 2026-09-19: the lone-King exception is removed. This used to accept
+  // a lone King as an opening build of 13.
+  it('refuses a lone King as an opening build too — no rank stands alone', () => {
+    const king = card('K', 'hearts');
+    const twin = card('K', 'clubs');
+    const state = makeState({ bidderHand: [king, twin], floorLoose: [card('2', 'clubs')], bidValue: 13 });
+    expect(() =>
+      submitOpeningAction(state, 'bidder', { type: 'build', builderCardId: king.id, floorCardIds: [] })
+    ).toThrow(/loose card, not a house/);
+    expect(state.floor.houses).toHaveLength(0);
   });
 
   it('rejects using a card that belongs to an existing house as though it were loose', () => {

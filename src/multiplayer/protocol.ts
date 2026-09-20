@@ -94,6 +94,18 @@ export interface TableEnvelope {
   /** The score for the round that just finished, computed once by the authority and shown to
    * everybody — so both players read the same numbers rather than each totting them up. */
   lastResult: RoundCompletionResult | null;
+  /**
+   * What each side scored in the last round that was played, kept for the tally at the top of the
+   * table. `lastResult` cannot serve this: it is cleared the moment the next round is dealt,
+   * because it is also what puts the score card on screen. This outlives that, and lives in the
+   * envelope rather than in each browser so everyone at the table reads the same two numbers and a
+   * refresh doesn't lose them.
+   *
+   * Optional, and read as "no round finished yet" when absent: tables opened before this existed
+   * are still perfectly valid envelopes, and bumping the version would have thrown away games that
+   * were in progress.
+   */
+  lastRoundScores?: Record<string, number> | null;
   /** The guest's mailbox — at most one outstanding request. */
   request: ActionRequest | null;
   /** So a request that arrives twice (retry, double-tap, reconnect) is applied once. */
@@ -175,6 +187,7 @@ export function createEnvelope(code: string, hostSessionId: string, hostName?: s
     })),
     game: null,
     lastResult: null,
+    lastRoundScores: null,
     request: null,
     lastAppliedRequestId: null,
     lastRejection: null
@@ -301,11 +314,13 @@ export function expectedActor(envelope: TableEnvelope): SeatId | null {
 /**
  * How long a seat gets before the authority plays for it.
  *
- * A person gets twenty seconds; a computer seat gets five, which is the pause that was already
- * there to make its play watchable rather than instant. Same mechanism, two speeds — twenty is
- * enough to actually read the floor and pick a move rather than being rushed.
+ * A person gets thirty seconds; a computer seat gets five seconds, which is the pause that was
+ * already there to make its play watchable rather than instant. Same mechanism, two speeds.
+ *
+ * A testing parameter, not a game rule: it went 20 s -> 60 s after the first family game, and is
+ * now 30 s for the current round of test play. This stays the one place the value lives.
  */
-export const HUMAN_TURN_MS = 20_000;
+export const HUMAN_TURN_MS = 30_000;
 export const AI_TURN_MS = 5_000;
 
 export function turnLimitMs(envelope: TableEnvelope, seat: SeatId): number {

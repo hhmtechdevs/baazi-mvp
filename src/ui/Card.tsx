@@ -12,14 +12,19 @@ export function PlayingCard({
   card,
   selected,
   dimmed,
+  playable,
   onClick
 }: {
   card: Card;
   selected?: boolean;
   dimmed?: boolean;
+  /** This card has at least one legal move right now — as decided by the engine, not by the card.
+   * Drawn a little raised and fully bright, so a glance at the hand says which cards to consider. */
+  playable?: boolean;
   onClick?: () => void;
 }) {
   const isRed = card.suit === 'hearts' || card.suit === 'diamonds';
+  const suit = SUIT_SYMBOL[card.suit];
   const classes = [
     'baazi-card',
     isRed ? 'is-red' : 'is-black',
@@ -28,15 +33,20 @@ export function PlayingCard({
     `is-${card.suit}`,
     selected ? 'is-selected' : '',
     dimmed ? 'is-dimmed' : '',
+    playable ? 'is-playable' : '',
     onClick ? 'is-clickable' : ''
   ]
     .filter(Boolean)
     .join(' ');
-  const suit = SUIT_SYMBOL[card.suit];
   const Tag = onClick ? 'button' : 'div';
 
   return (
-    <Tag className={classes} onClick={onClick} type={onClick ? 'button' : undefined}>
+    <Tag
+      className={classes}
+      onClick={onClick}
+      type={onClick ? 'button' : undefined}
+      aria-label={onClick ? `${card.rank}${suit}` : undefined}
+    >
       <span className="baazi-card-index">
         <span className="baazi-card-rank">{card.rank}</span>
         <span className="baazi-card-suit">{suit}</span>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actingPlayerId, seatAt, seatsAround, sideLabel, sideOfPlayer, sidesAreSettled, sidesInPlay, yourOwnerIds } from './table';
+import { actingPlayerId, matchTally, seatAt, seatsAround, sideLabel, sideOfPlayer, sidesAreSettled, sidesInPlay, yourOwnerIds } from './table';
 import type { GameState, Player, Team } from '../types';
 
 function player(id: string, name: string, hand = 0): Player {
@@ -196,5 +196,72 @@ describe('recognising a house as your side\'s', () => {
     expect(sideLabel(fourUp, 'right', 'you')).toBe('Right');
     expect(sideLabel(fourUp, 'team-1', 'you')).toBe('Left & Right');
     expect(sideLabel(fourUp, 'you', 'you')).toBe('You');
+  });
+});
+
+describe('the match tally — the lead, and what the last round was worth', () => {
+  const twoHanded = (scores: Record<string, number>): GameState => ({
+    ...state([player('you', 'You'), player('bot', 'Baazigar')]),
+    scores
+  });
+
+  const fourHanded = (scores: Record<string, number>): GameState => ({
+    ...state(
+      [player('you', 'You'), player('left', 'Sydney'), player('partner', 'Grandma'), player('right', 'Harpreet')],
+      [
+        { id: 'team-0', name: 'Team 0', playerIds: ['you', 'partner'] },
+        { id: 'team-1', name: 'Team 1', playerIds: ['left', 'right'] }
+      ],
+      '4player'
+    ),
+    scores
+  });
+
+  it('says nothing at all before a round has been scored', () => {
+    const s = twoHanded({});
+    expect(matchTally(s, ['you', 'bot'], 'you', null)).toEqual({ lead: null, lastRound: null });
+  });
+
+  it('gives the gap between the two sides, named for whoever is ahead', () => {
+    const s = twoHanded({ you: 164, bot: 86 });
+    expect(matchTally(s, ['you', 'bot'], 'you', null).lead).toBe('You lead by 78');
+  });
+
+  it('says "leads" for one person and "lead" for a partnership', () => {
+    expect(matchTally(twoHanded({ you: 86, bot: 164 }), ['you', 'bot'], 'you', null).lead).toBe('Baazigar leads by 78');
+    const four = fourHanded({ 'team-0': 81, 'team-1': 169 });
+    expect(matchTally(four, ['team-0', 'team-1'], 'you', null).lead).toBe('Sydney & Harpreet lead by 88');
+  });
+
+  it('calls a dead heat level', () => {
+    expect(matchTally(twoHanded({ you: 55, bot: 55 }), ['you', 'bot'], 'you', null).lead).toBe('Level');
+  });
+
+  it("reads last round's two scores in the same order as the totals above them", () => {
+    const s = fourHanded({ 'team-0': 81, 'team-1': 169 });
+    const tally = matchTally(s, ['team-0', 'team-1'], 'you', { 'team-0': 26, 'team-1': 124 });
+    expect(tally.lastRound).toBe('Last round 26 – 124');
+    // Seen from the other side of the table, your side still comes first.
+    const theirs = matchTally(s, ['team-1', 'team-0'], 'left', { 'team-0': 26, 'team-1': 124 });
+    expect(theirs.lastRound).toBe('Last round 124 – 26');
+    expect(theirs.lead).toBe('You & Harpreet lead by 88');
+  });
+
+  it('shows a side that scored nothing last round as 0, rather than leaving it out', () => {
+    const s = twoHanded({ you: 100, bot: 0 });
+    expect(matchTally(s, ['you', 'bot'], 'you', { you: 100 }).lastRound).toBe('Last round 100 – 0');
+  });
+
+  it('still reports a level match once a round has been played, when the totals say 0 apiece', () => {
+    const s = twoHanded({ you: 0, bot: 0 });
+    expect(matchTally(s, ['you', 'bot'], 'you', { you: 0, bot: 0 })).toEqual({
+      lead: 'Level',
+      lastRound: 'Last round 0 – 0'
+    });
+  });
+
+  it('says nothing while a four-handed round 1 has no partnerships yet', () => {
+    const s = fourHanded({});
+    expect(matchTally(s, [], 'you', null)).toEqual({ lead: null, lastRound: null });
   });
 });

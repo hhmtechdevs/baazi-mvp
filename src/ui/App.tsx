@@ -231,6 +231,7 @@ function PracticeGame({ config, onLeave }: { config: GameLengthConfig; onLeave: 
       onMove={g.submitHumanMove}
       roundComplete={g.isRoundComplete}
       lastRoundResult={g.lastRoundResult}
+      lastRoundScores={g.lastRoundScores}
       onFinishRound={g.finishRound}
       onNextRound={g.lastRoundResult?.gameOver ? onLeave : g.startNextRoundClicked}
     />
@@ -276,6 +277,7 @@ function SharedGame({ table, onLeave }: { table: MultiplayerTable; onLeave: () =
       onMove={table.submitMove}
       roundComplete={false}
       lastRoundResult={envelope.lastResult}
+      lastRoundScores={envelope.lastRoundScores ?? null}
       onNextRound={table.dealNext ?? undefined}
       onLeave={onLeave}
       tableCode={envelope.code}

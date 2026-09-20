@@ -152,6 +152,24 @@ export type LegalOption =
 // remaining target hangs the moment a floor grows past ~20 cards).
 // ---------------------------------------------------------------------------
 
+/**
+ * NO CARD MAY FORM A HOUSE BY ITSELF — including a King (Product Owner, post-freeze).
+ *
+ * A card played from hand with nothing from the floor is simply a LOOSE card: anyone may capture
+ * it, and it only becomes a house when someone later builds on it (9 + 2 = 11) as an explicit
+ * action. This was first corrected for 9/10/J/Q — build discovery used to treat "use no floor
+ * cards" as a valid combination for any value, and 44% of all houses built in auto-played rounds
+ * were single 9/10/J/Q cards. A King was kept as a Baazi-specific exception at the time, on the
+ * reasoning that a King is already worth 13 and can never be raised, so declaring one alone was a
+ * complete house. That exception has now been removed as well: a King played on its own is a loose
+ * card like any other, and no BUILD option may be offered merely because a King could stand as a
+ * 13-house. Everything else about Kings is unchanged — capturing with one, capturing a loose one,
+ * and building a 13 out of a King plus floor cards all work exactly as before.
+ *
+ * Enforced in two places, both below: opening build discovery and normal-play build discovery
+ * (Ingredient 3's opening-build validator applies the same rule directly).
+ */
+
 function enumerateSubsetsSummingTo(cards: Card[], target: number): Card[][] {
   if (target < 0) return [];
   if (target === 0) return [[]]; // "use no additional cards" is itself a valid, empty combination
@@ -357,7 +375,8 @@ function discoverBuildOptionsForValue(
   const needed = houseValue - rankValue(handCard.rank);
   if (needed < 0) return [];
 
-  const combos = enumerateSubsetsSummingTo(floorLoose, needed);
+  // A build always has to combine with something on the floor; no rank stands alone.
+  const combos = enumerateSubsetsSummingTo(floorLoose, needed).filter(combo => combo.length > 0);
   const handAfterPlaying = hand.filter(c => c.id !== handCard.id);
   const retains = handAfterPlaying.some(c => rankValue(c.rank) === houseValue);
   if (!retains) return [];
@@ -419,6 +438,18 @@ function discoverLandingOptionsForCard(
       if (!retains) continue;
 
       for (const absorbed of collectAllCompatibleCombinations(remainingLoose, houseValue)) {
+        // A new house may not consist of the played card ALONE — any card laid down by itself,
+        // King included, stays a loose card. Floor cards can join it two ways, and either counts:
+        // summed WITH the played card (the combo: 5 + 6 = 11), or swept in ALONGSIDE it as a group
+        // already worth the value (a J with a 5+6 beside it is the house J + 5 + 6). Only when both
+        // are empty is it forbidden.
+        //
+        // Checked here, per absorption alternative, and deliberately not on the shared `combos`
+        // list: an earlier draft filtered empty combos outright and wrongly removed J + 5 + 6 —
+        // caught by frozen test 6d. Cement / Add-to-Fixed below land a card on an EXISTING house and
+        // are a different action entirely, so they are untouched.
+        if (combo.length === 0 && absorbed.length === 0) continue;
+
         results.push({
           kind: 'build',
           handCardId: handCard.id,
@@ -541,10 +572,55 @@ function discoverRaisingOptionsForCard(
 }
 
 // ---------------------------------------------------------------------------
+// HOUSE KEY PRESERVATION — frozen by the Product Owner, 2026-09-19, after a seeded 240-round
+// diagnostic traced every house left on the floor at round end (27 of them) to one gap: the key
+// checks above only ask about the house being made or changed, so a side could spend the LAST key
+// of a house it already owned on a different value and strand that house for the rest of the round.
+//
+// The rule (Pagat's owner/key rule, adapted to Baazi's side ownership): every side that owns a
+// house must keep at least one card of that house's capture value in hand until the house is
+// captured or broken, and that last key may only be used to capture it — never for a Build,
+// Cement, Add-to-Fixed, Break or Merge-Fix. Specifically:
+//   - a side is the player in 2-player mode and the team in 4-player mode, so a partner's
+//     matching card keeps the team's obligation satisfied;
+//   - a jointly owned house binds BOTH sides, each with its own key — the other side's card
+//     never counts;
+//   - only cards in hand count (a 2-player reserve is not in hand yet), as in every other key
+//     check in this file;
+//   - once the house is captured or broken it no longer sits at that value, so the obligation
+//     ends by itself.
+// Capture discovery is untouched: a preserved key always has a capture, because its house is on
+// the floor, and the existing mandatory-capture rule already keeps Throw off it.
+// ---------------------------------------------------------------------------
+
+/**
+ * The sides that own a house. An ordinary house records the individual who built or broke it; a
+ * cemented house records side ids (see the Cement branch above) — both resolve to sides here.
+ */
+function owningSidesOf(state: GameState, house: House): Set<string> {
+  return new Set(house.ownerSides.map(owner => (state.players.some(p => p.id === owner) ? sideOf(state, owner) : owner)));
+}
+
+/** True when `handCard` is the acting side's last key for a house that side owns. */
+function isPreservedHouseKey(state: GameState, actingPlayerId: string, hand: Card[], handCard: Card): boolean {
+  const value = rankValue(handCard.rank);
+  // Cheapest questions first; sides are only resolved when a house at this value actually exists.
+  const housesAtValue = state.floor.houses.filter(h => h.captureValue === value);
+  if (housesAtValue.length === 0) return false;
+  if (hand.some(c => c.id !== handCard.id && rankValue(c.rank) === value)) return false; // self keeps another
+
+  const side = sideOf(state, actingPlayerId);
+  if (!housesAtValue.some(h => owningSidesOf(state, h).has(side))) return false;
+  const partnerKeepsOne = teammatesOf(state, actingPlayerId).some(p => p.hand.some(c => rankValue(c.rank) === value));
+  return !partnerKeepsOne;
+}
+
+// ---------------------------------------------------------------------------
 // NORMAL PLAY discovery: house-landing (Build/Cement/Add-to-Fixed) and house-raising
 // (Break/MergeFix) actions are always available alongside Capture — Build/Combine is a strategic
 // player CHOICE, never mandatory (frozen), so its presence never suppresses Capture or Throw.
 // Per the frozen mandatory-capture rule, Throw is only suppressed when a Capture exists.
+// The one exception is House Key Preservation (above): a preserved key has no house actions.
 // ---------------------------------------------------------------------------
 
 function discoverNormalOptionsForCard(
@@ -553,12 +629,15 @@ function discoverNormalOptionsForCard(
   hand: Card[],
   handCard: Card
 ): LegalOption[] {
-  const options: LegalOption[] = [];
-
+  const houseActions: LegalOption[] = [];
   for (let houseValue = HOUSE_MIN; houseValue <= HOUSE_MAX; houseValue++) {
-    options.push(...discoverLandingOptionsForCard(state, actingPlayerId, hand, handCard, houseValue));
+    houseActions.push(...discoverLandingOptionsForCard(state, actingPlayerId, hand, handCard, houseValue));
   }
-  options.push(...discoverRaisingOptionsForCard(state, actingPlayerId, hand, handCard));
+  houseActions.push(...discoverRaisingOptionsForCard(state, actingPlayerId, hand, handCard));
+
+  // Only consulted when the card actually has a house action to lose.
+  const options: LegalOption[] =
+    houseActions.length > 0 && isPreservedHouseKey(state, actingPlayerId, hand, handCard) ? [] : houseActions;
 
   const captureOptions = discoverCaptureOptionsForValue(state, handCard, rankValue(handCard.rank));
   options.push(...captureOptions);

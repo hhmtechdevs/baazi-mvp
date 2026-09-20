@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CardBack, PlayingCard } from './Card';
-import { labelLegalOptions } from './describeOption';
+import { planForCard } from './cardChoices';
 import { House } from './House';
 import { Hand } from './Hand';
 import { LooseFloor } from './LooseFloor';
-import { seatAt, seatsAround, sideLabel, sidesAreSettled, sidesInPlay, yourOwnerIds } from './table';
+import { matchTally, seatAt, seatsAround, sideLabel, sidesAreSettled, sidesInPlay, yourOwnerIds } from './table';
 import type { Seat } from './table';
 import { VISIBLE_PRE_OPENING_CARD_COUNT, safeBidValues } from './useBaaziGame';
 import { discoverLegalMoves } from '../engine/roundOrchestrator';
-import type { OrchestratedGame, RoundCompletionResult } from '../engine/roundOrchestrator';
+import type { LegalOption, OrchestratedGame, RoundCompletionResult } from '../engine/roundOrchestrator';
 import { toNormalPlayMove, toOpeningAction, withOnlyVisibleHand } from '../engine/moveAdapter';
 import type { NormalPlayMove } from '../engine/moveExecution';
 import { computeRoundScoreBreakdown } from '../engine/scoring';
@@ -148,6 +148,59 @@ function OpponentSeat({
   );
 }
 
+const SUIT_SYMBOL: Record<Card['suit'], string> = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
+
+/** "3♥" — how a card is named back to the player who is holding it. */
+function cardName(card: Card): string {
+  return `${card.rank}${SUIT_SYMBOL[card.suit]}`;
+}
+
+/**
+ * Whose turn it is, said in words, right above the hand — where the player is actually looking.
+ *
+ * The first family game showed that a gold ring on a nameplate at the edge of the screen is not
+ * enough for everyone to notice that it is their go. So on your turn this says YOUR TURN, says what
+ * to do next in plain words ("Tap a card to play it"), and carries the turn's clock as a slow bar
+ * directly underneath — the time belongs to the turn, so it sits with the turn. When it is someone
+ * else's go, the same place says so quietly, so there is never a moment where nobody seems to be
+ * playing.
+ *
+ * The clock is meant to say "it's your turn, and you have time", not "hurry": no numbers ticking
+ * down, no colour change as it runs low, nothing that flashes. Its height is held constant whether
+ * or not there is anything to say, so the hand beneath never jumps when the turn passes.
+ */
+function TurnBanner({
+  yourMove,
+  actingName,
+  prompt,
+  note,
+  turnStartedAt,
+  turnLimitMs
+}: {
+  yourMove: boolean;
+  actingName: string | null;
+  prompt: string | null;
+  note: string | null;
+  turnStartedAt?: number;
+  turnLimitMs?: number;
+}) {
+  const fraction = useCountdown(turnStartedAt, turnLimitMs);
+  const title = yourMove ? 'YOUR TURN' : actingName ? `${actingName}’s turn` : null;
+
+  return (
+    <div className={`baazi-turn-banner ${yourMove ? 'is-yours' : 'is-theirs'}`} role="status" aria-live="polite">
+      {title && <div className="baazi-turn-title">{title}</div>}
+      {yourMove && prompt && <div className="baazi-turn-prompt">{prompt}</div>}
+      {title && fraction !== null && (
+        <div className="baazi-turn-clock" aria-hidden="true">
+          <span style={{ transform: `scaleX(${fraction})` }} />
+        </div>
+      )}
+      {note && <div className="baazi-turn-note">{note}</div>}
+    </div>
+  );
+}
+
 export interface TableProps {
   game: OrchestratedGame;
   /** The engine player id of the seat this browser is playing. */
@@ -161,6 +214,9 @@ export interface TableProps {
   onMove: (move: NormalPlayMove) => void;
   roundComplete: boolean;
   lastRoundResult: RoundCompletionResult | null;
+  /** What each side scored in the round just played, for the tally at the top. Survives the deal of
+   * the next round, which is exactly what `lastRoundResult` does not do. */
+  lastRoundScores?: Record<string, number> | null;
   onFinishRound?: () => void;
   onNextRound?: () => void;
   /** Anything that should float over the middle of the blanket — a waiting notice, a refusal. */
@@ -219,15 +275,44 @@ export function TableView(props: TableProps) {
   // short stretch between the call and the opening action a round-1 state has no sides at all —
   // and asking the engine to break a score down by side would (correctly) fail loudly.
   const runningTally = sidesAreSettled(state) ? computeRoundScoreBreakdown(state) : null;
+  // A match is always two sides, so the gap between them is simply "the lead" — see matchTally.
+  const tally = matchTally(state, sides, mySeat, props.lastRoundScores);
 
-  // Labels are resolved per rendered set, so suits are only added back where two options would
-  // otherwise read identically (see labelLegalOptions).
-  const openingOptions = Object.values(openingOptionsForMe).flat();
-  const openingLabels = labelLegalOptions(openingOptions, state);
-  const openingChoices = openingOptions.map((option, i) => ({ option, label: openingLabels[i] }));
-  const moveOptions = (selectedCardId && legalMovesForMe[selectedCardId]) || [];
-  const moveLabels = labelLegalOptions(moveOptions, state);
-  const moveChoices = moveOptions.map((option, i) => ({ option, label: moveLabels[i] }));
+  // ---- one interaction, for the opening play and every turn after it ----------------------------
+  //
+  // The engine says what each card may legally do; the player chooses. A tap on a card with exactly
+  // one legal move plays it. A tap on a card with several shows those several — and only those —
+  // as COLLECT / CEMENT / ADD TO HOUSE / BUILD HOUSE / PLAY CARD. Nothing here decides legality:
+  // see cardChoices.ts.
+  //
+  // The opening play used to show every option across all four visible cards as one flat list; it
+  // now works exactly like a normal turn, so there is one way to play a card, not two.
+  const isChoosingCard = isMyOpening || isMyTurn;
+  const optionsByCard: Record<string, LegalOption[]> = isMyOpening
+    ? openingOptionsForMe
+    : isMyTurn
+      ? legalMovesForMe
+      : {};
+
+  const play = (option: LegalOption) => {
+    setSelectedCardId(null);
+    if (isMyOpening) props.onOpeningAction(toOpeningAction(option));
+    else props.onMove(toNormalPlayMove(option));
+  };
+
+  const tapCard = (card: Card) => {
+    const plan = planForCard(optionsByCard[card.id], state);
+    if (plan.kind === 'direct') play(plan.choice.option);
+    else if (plan.kind === 'choose') setSelectedCardId(current => (current === card.id ? null : card.id));
+  };
+
+  const playableIds = new Set(
+    isChoosingCard ? Object.entries(optionsByCard).filter(([, opts]) => opts.length > 0).map(([id]) => id) : []
+  );
+
+  const selectedCard = me.hand.find(c => c.id === selectedCardId) ?? null;
+  const selectedPlan = selectedCard ? planForCard(optionsByCard[selectedCard.id], state) : null;
+  const choices = selectedPlan?.kind === 'choose' ? selectedPlan.choices : [];
 
   const floorIsBare = state.floor.loose.length === 0 && state.floor.houses.length === 0;
 
@@ -238,20 +323,38 @@ export function TableView(props: TableProps) {
           Round {state.roundNumber} · {phaseLabel(state, mySeat, thinkingPlayerId)}
         </div>
 
-        <div className="baazi-scoreline">
-          {sides.map(side => (
-            <div key={side} className="baazi-side-score">
-              <span className="baazi-side-name">{sideLabel(state, side, mySeat)}</span>
-              <span className="baazi-side-total">{state.scores[side] ?? 0}</span>
-              {runningTally && (runningTally[side]?.total ?? 0) > 0 && (
-                <span className="baazi-side-round">
-                  +{runningTally[side].total}
-                  {runningTally[side].sweepPoints > 0 &&
-                    ` (${runningTally[side].cardPoints} + ${runningTally[side].sweepPoints} Seep)`}
-                </span>
-              )}
+        <div className="baazi-scores">
+          <div className="baazi-scoreline">
+            {sides.map(side => (
+              <div key={side} className="baazi-side-score">
+                <span className="baazi-side-name">{sideLabel(state, side, mySeat)}</span>
+                <span className="baazi-side-total">{state.scores[side] ?? 0}</span>
+                {runningTally && (runningTally[side]?.total ?? 0) > 0 && (
+                  <span className="baazi-side-round">
+                    +{runningTally[side].total}
+                    {/* The breakdown is the first thing to go when the bar is narrow — what a side is
+                        up THIS round is the part worth keeping on a phone, so it gets its own span. */}
+                    {runningTally[side].sweepPoints > 0 && (
+                      <span className="baazi-side-round-detail">
+                        {' '}
+                        ({runningTally[side].cardPoints} + {runningTally[side].sweepPoints} Seep)
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Who is ahead, and what the last round was worth. Nothing to say in round 1, so it is
+              simply not there rather than showing a row of zeroes. */}
+          {(tally.lead || tally.lastRound) && (
+            <div className="baazi-match-tally">
+              {tally.lead && <span className="baazi-tally-lead">{tally.lead}</span>}
+              {tally.lead && tally.lastRound && <span aria-hidden="true">·</span>}
+              {tally.lastRound && <span>{tally.lastRound}</span>}
             </div>
-          ))}
+          )}
         </div>
 
         <div className="baazi-topbar-end">
@@ -298,29 +401,48 @@ export function TableView(props: TableProps) {
             </div>
           )}
 
-          {state.floor.loose.length > 0 && <LooseFloor cards={state.floor.loose} />}
+          {/* The floor is dealt face down and only turned over once the call is made — the engine's
+              own revealFloor step is exactly that transition, bidding -> revealing. Showing it
+              face up during the call handed the caller four cards of information they are not
+              meant to have yet. */}
+          {state.floor.loose.length > 0 && (
+            <LooseFloor cards={state.floor.loose} faceDown={state.phase === 'bidding'} />
+          )}
         </div>
 
         <div className="baazi-near">
-          {isPreOpening && (
-            <p className="baazi-hand-hint">
-              First {VISIBLE_PRE_OPENING_CARD_COUNT} only — the rest turn face-up after your opening move.
-            </p>
-          )}
-          <div className="baazi-hand">
+          <TurnBanner
+            yourMove={isYourMove}
+            actingName={seats.find(s => s.isTurn && !s.isYou)?.name ?? null}
+            // Once a card is chosen, the question moves down to sit with its answers (below the
+            // hand). Up here it was covered by the very card it named, which rises as it's picked.
+            prompt={isMyBid ? 'Choose your call' : isChoosingCard && !selectedCard ? 'Tap a card to play it' : null}
+            note={
+              isPreOpening && me.hand.length > VISIBLE_PRE_OPENING_CARD_COUNT
+                ? `You can see your first ${VISIBLE_PRE_OPENING_CARD_COUNT} cards — the rest turn over after your opening play.`
+                : null
+            }
+            turnStartedAt={props.turnStartedAt}
+            turnLimitMs={props.turnLimitMs}
+          />
+          <div className={`baazi-hand ${isYourMove ? 'is-live' : 'is-waiting'}`}>
             <Hand
               cards={sortedForDisplay(isPreOpening ? me.hand.slice(0, VISIBLE_PRE_OPENING_CARD_COUNT) : me.hand)}
               selectedId={selectedCardId}
+              playableIds={playableIds}
               isActive={isYourMove}
               renderCard={card => {
-                const options = legalMovesForMe[card.id] ?? [];
-                const clickable = isMyTurn && options.length > 0;
+                const playable = playableIds.has(card.id);
                 return (
                   <PlayingCard
                     card={card}
                     selected={selectedCardId === card.id}
-                    dimmed={isMyTurn && options.length === 0}
-                    onClick={clickable ? () => setSelectedCardId(c => (c === card.id ? null : card.id)) : undefined}
+                    playable={playable}
+                    // Quiet only the cards that genuinely can't be played while a card is being
+                    // chosen; outside your turn the whole hand rests, rather than every card
+                    // looking like a mistake.
+                    dimmed={isChoosingCard && !playable}
+                    onClick={playable ? () => tapCard(card) : undefined}
                   />
                 );
               }}
@@ -357,21 +479,19 @@ export function TableView(props: TableProps) {
               </div>
             )}
 
-            {isMyOpening && (
-              <div className="baazi-choice-row">
-                {openingChoices.map(({ option, label }, i) => (
-                  <button key={i} className="baazi-choice-button" onClick={() => props.onOpeningAction(toOpeningAction(option))}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {isMyTurn && selectedCardId && moveChoices.length > 0 && (
-              <div className="baazi-choice-row">
-                {moveChoices.map(({ option, label }, i) => (
-                  <button key={i} className="baazi-choice-button" onClick={() => props.onMove(toNormalPlayMove(option))}>
-                    {label}
+            {/* Only when a card has more than one legal move — a card with exactly one is simply
+                played on the tap, so there is nothing to choose. */}
+            {choices.length > 0 && (
+              <div className="baazi-choice-row" role="group" aria-label={`What to do with ${cardName(selectedCard!)}`}>
+                <span className="baazi-choice-caption">What do you want to do with {cardName(selectedCard!)}?</span>
+                {choices.map((choice, i) => (
+                  <button
+                    key={i}
+                    className={`baazi-choice-button is-${choice.verb.toLowerCase().replace(/ /g, '-')}`}
+                    onClick={() => play(choice.option)}
+                  >
+                    <span className="baazi-choice-verb">{choice.verb}</span>
+                    {choice.detail && <span className="baazi-choice-detail">{choice.detail}</span>}
                   </button>
                 ))}
               </div>

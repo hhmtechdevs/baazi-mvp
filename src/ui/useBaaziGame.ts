@@ -107,6 +107,9 @@ export interface BaaziUiState {
   table: TableKind | null;
   log: string[];
   lastRoundResult: RoundCompletionResult | null;
+  /** What each side scored in the last round played. Outlives `lastRoundResult`, which is cleared
+   * when the next round is dealt, so the tally at the top can keep showing it. */
+  lastRoundScores: Record<string, number> | null;
   /** Whoever is currently taking their time over a decision, or null when it's your move. */
   thinkingPlayerId: string | null;
   botDelayMs: number;
@@ -151,6 +154,7 @@ export function useBaaziGame() {
     table: null,
     log: [],
     lastRoundResult: null,
+    lastRoundScores: null,
     thinkingPlayerId: null,
     botDelayMs: BOT_DELAY_MS_DEFAULT
   });
@@ -177,6 +181,7 @@ export function useBaaziGame() {
       table,
       log: [`New game started. ${nameOf(dealerId)} deals — ${nameOf(game.state.bidderId)} calls.`],
       lastRoundResult: null,
+      lastRoundScores: null,
       thinkingPlayerId: null,
       botDelayMs: BOT_DELAY_MS_DEFAULT
     });
@@ -217,6 +222,7 @@ export function useBaaziGame() {
         ...s,
         game: { ...s.game, state: result.state },
         lastRoundResult: result,
+        lastRoundScores: Object.fromEntries(Object.entries(result.breakdown).map(([side, b]) => [side, b.total])),
         log: [...s.log, `Round complete. Scores — ${scoreLine}.`, result.gameOver ? 'Game complete.' : '']
           .filter(Boolean)
       };

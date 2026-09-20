@@ -9,6 +9,10 @@ import {
   submitOpeningAction
 } from '../engine/roundOrchestrator';
 import { chooseBid, chooseMove, chooseOpeningAction } from '../botStrategy';
+import { dealNextRound, nextHostStep, startTable } from '../multiplayer/host';
+import { HUMAN_TURN_MS, createEnvelope } from '../multiplayer/protocol';
+import type { TableEnvelope } from '../multiplayer/protocol';
+import { matchTally, sidesInPlay } from './table';
 
 /**
  * The Family table, played out with the timers taken away.
@@ -80,5 +84,62 @@ describe('the Family table can be played to the end', () => {
     expect(yourTeam.playerIds).toContain('partner');
     expect(yourTeam.playerIds).not.toContain('left');
     expect(yourTeam.playerIds).not.toContain('right');
+  });
+});
+
+/**
+ * The tally that sits at the top of a Family table, end to end: the authority scores a round, the
+ * two numbers go onto the table itself, the next round is dealt — and the tally still reads them.
+ *
+ * This is the join the unit tests either side of it cannot see: host.ts writes `lastRoundScores`,
+ * table.ts's matchTally turns it into the line people read, and the round in between wipes
+ * everything else about the round that just finished.
+ */
+describe('the tally at the top of a Family table', () => {
+  function seatedTable(): TableEnvelope {
+    const withHost = createEnvelope('TALY', 'host-session', 'You');
+    return startTable(withHost, 'you');
+  }
+
+  /** Run the authority until the round has been played and scored. */
+  function scoredRound(envelope: TableEnvelope): TableEnvelope {
+    let table = envelope;
+    let now = Date.now();
+    for (let i = 0; i < 4000 && !table.lastResult; i++) {
+      now += HUMAN_TURN_MS + 1_000; // past every allowance, so the authority plays each seat
+      const step = nextHostStep(table, now);
+      if (step) table = step.envelope;
+    }
+    if (!table.lastResult) throw new Error('the round never finished');
+    return table;
+  }
+
+  it('says who leads and what the last round was worth, and keeps saying it through the next deal', () => {
+    const scored = seatedTable();
+    const table = scoredRound(scored);
+    const sides = sidesInPlay(table.game!.state, 'you');
+    expect(sides).toHaveLength(2); // a match is always two sides
+
+    const totals = Object.fromEntries(Object.entries(table.lastResult!.breakdown).map(([s, b]) => [s, b.total]));
+    const afterScoring = matchTally(table.game!.state, sides, 'you', table.lastRoundScores);
+    expect(afterScoring.lastRound).toBe(`Last round ${sides.map(s => totals[s]).join(' – ')}`);
+    expect(afterScoring.lead).toMatch(/^(Level|.+ leads? by \d+)$/);
+
+    if (table.lastResult!.gameOver) return; // a 100-point lead in one round; there is no next deal
+
+    // The score card goes; the tally does not.
+    const next = dealNextRound(table);
+    expect(next.lastResult).toBeNull();
+    const afterDealing = matchTally(next.game!.state, sidesInPlay(next.game!.state, 'you'), 'you', next.lastRoundScores);
+    expect(afterDealing).toEqual(afterScoring);
+  });
+
+  it('has nothing to say in round 1, before anything has been scored', () => {
+    const table = seatedTable();
+    const state = table.game!.state;
+    expect(matchTally(state, sidesInPlay(state, 'you'), 'you', table.lastRoundScores)).toEqual({
+      lead: null,
+      lastRound: null
+    });
   });
 });

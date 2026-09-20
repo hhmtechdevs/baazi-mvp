@@ -131,3 +131,53 @@ export function yourOwnerIds(state: GameState, humanId: string): string[] {
   }
   return [...ids];
 }
+
+/**
+ * The match summary that sits under the two totals: who is ahead and by how much, and what each
+ * side scored in the round just finished.
+ *
+ * A Baazi match is always two sides — two players, or two partnerships — so "the lead" is simply
+ * the gap between them, and last round's numbers read left to right in the same order as the
+ * totals above (your side first).
+ *
+ * `lastRoundScores` has to be carried by the caller: the engine clears `state.roundScores` when it
+ * deals the next round, so by the time this line is being read, the round it describes is gone
+ * from the game state. Practice keeps it in the hook, a Family table keeps it in the envelope so
+ * everyone at the table reads the same numbers and a refresh doesn't lose them.
+ *
+ * Both fields are null until there is something true to say — in round 1 nothing has been scored,
+ * and a line saying "Level · Last round 0 – 0" would be noise on a phone.
+ */
+export interface MatchTally {
+  lead: string | null;
+  lastRound: string | null;
+}
+
+export function matchTally(
+  state: GameState,
+  sides: string[],
+  humanId: string,
+  lastRoundScores: Record<string, number> | null | undefined
+): MatchTally {
+  if (sides.length < 2) return { lead: null, lastRound: null };
+
+  const [ours, theirs] = sides.map(side => state.scores[side] ?? 0);
+  const scoredSomething = ours !== 0 || theirs !== 0 || !!lastRoundScores;
+
+  let lead: string | null = null;
+  if (scoredSomething) {
+    if (ours === theirs) lead = 'Level';
+    else {
+      const label = sideLabel(state, ours > theirs ? sides[0] : sides[1], humanId);
+      // "You lead", "Sydney & Grandma lead" (two people), but "Baazigar leads" (one).
+      const verb = label === 'You' || label.includes('&') ? 'lead' : 'leads';
+      lead = `${label} ${verb} by ${Math.abs(ours - theirs)}`;
+    }
+  }
+
+  const lastRound = lastRoundScores
+    ? `Last round ${sides.map(side => lastRoundScores[side] ?? 0).join(' – ')}`
+    : null;
+
+  return { lead, lastRound };
+}

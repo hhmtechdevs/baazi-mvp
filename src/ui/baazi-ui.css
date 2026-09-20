@@ -384,6 +384,14 @@ body {
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
 }
 
+/* Every column may shrink below its content. Without this a grid column takes its widest child as
+   its minimum, so the scores pushed sideways out of the bar instead of wrapping — on a laptop
+   Safari window the lead line simply wasn't there, while the same build stacked it happily on a
+   narrow one. Nothing in this bar is ever worth losing off the edge. */
+.baazi-topbar > * {
+  min-width: 0;
+}
+
 .baazi-topbar-end {
   display: flex;
   align-items: center;
@@ -391,13 +399,41 @@ body {
   gap: 8px;
 }
 
+/* The scores and, under them, the match tally: who leads and what the last round was worth. Two
+   lines that belong together, so they travel as one block through the top bar's grid. */
+.baazi-scores {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+}
+
 .baazi-scoreline {
   display: flex;
   align-items: baseline;
   justify-content: center;
+  /* A side and its scores stay together on one line; when both sides no longer fit, they take a
+     line each rather than being cut off. */
+  flex-wrap: wrap;
   gap: 20px;
+  row-gap: 2px;
   min-height: 22px;
   font-variant-numeric: tabular-nums;
+}
+
+.baazi-match-tally {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  font-size: 11px;
+  opacity: 0.68;
+  font-variant-numeric: tabular-nums;
+}
+
+.baazi-tally-lead {
+  font-weight: 600;
 }
 
 .baazi-side-score {
@@ -983,31 +1019,40 @@ body {
   margin-left: 0;
 }
 
-/* Identity and this turn's choices share one strip below the hand, so the options never sit over
-   the cards or push the table around when they appear. */
 /* Your nameplate and this turn's choices.
 
-   Three columns, with the nameplate anchored left and the choices in the middle one: because the
-   outer columns are equal fractions, the choices stay centred on the table however wide they get,
-   instead of being shoved off-centre by the chip sitting next to them. Your name belongs at your
-   own edge; the moves belong in front of you. */
+   Stacked: the choices on top, centred on the table and free to use its whole width, and your
+   nameplate beneath them at your own edge. An earlier version put them side by side in three
+   columns; that held with two or three choices, but a card with seven legal moves starved one or
+   the other — the nameplate crushed to "Y 11" on a wide screen, the choices forced one per line on
+   a narrower one. Stacking removes the contest entirely, at every width. */
 .baazi-bottom-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  column-gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 8px;
   min-height: 38px;
   width: 100%;
 }
 
 .baazi-bottom-bar > .baazi-player-chip {
-  grid-column: 1;
+  grid-row: 2;
   justify-self: start;
   min-width: 0;
 }
 
 .baazi-bottom-bar > .baazi-choice-row {
-  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
+  max-width: min(900px, 100%);
+}
+
+/* The question, stated with its answers. */
+.baazi-choice-caption {
+  flex-basis: 100%;
+  text-align: center;
+  font-size: 13px;
+  color: var(--baazi-cream);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
 }
 
 .baazi-choice-row {
@@ -1026,10 +1071,13 @@ body {
 }
 
 .baazi-choice-button {
-  padding: 8px 13px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 9px 14px;
   border-radius: 10px;
   border: 1px solid var(--baazi-keyline);
-  background: var(--baazi-shade);
+  background: var(--baazi-shade-strong);
   color: var(--baazi-cream);
   cursor: pointer;
   font-size: 14px;
@@ -1039,8 +1087,104 @@ body {
 }
 
 .baazi-choice-button:hover {
-  background: var(--baazi-shade-strong);
+  background: rgba(24, 38, 20, 0.96);
   border-color: var(--baazi-accent);
+}
+
+/* The action, then exactly what it does: "COLLECT  7 + 4". The verb is the thing a newcomer reads;
+   the detail is the thing an experienced player reads. Each verb carries its own quiet colour —
+   BUILD HOUSE borrows the blue your own houses already wear, so the button and the house it makes
+   look like the same idea. */
+.baazi-choice-verb {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--baazi-accent);
+}
+
+.baazi-choice-button.is-build-house .baazi-choice-verb,
+.baazi-choice-button.is-cement .baazi-choice-verb,
+.baazi-choice-button.is-add-to-house .baazi-choice-verb {
+  color: #8fbde0;
+}
+
+.baazi-choice-button.is-play-card .baazi-choice-verb {
+  color: rgba(250, 247, 240, 0.78);
+}
+
+.baazi-choice-detail {
+  font-size: 14px;
+}
+
+/* ---------------------------------------------------------------------------
+   Whose turn it is, said in words above the hand.
+
+   A reserved band, the same height whether it is your turn or not, so the hand beneath never jumps
+   when the turn passes. On your turn the words are gold and the clock sits right under them; on
+   anyone else's they're quiet. No flashing, no pulsing, no colour change as time runs down — the
+   clock says "you have time", never "hurry".
+   --------------------------------------------------------------------------- */
+.baazi-turn-banner {
+  min-height: 52px;
+  /* Clear air under the words for the hand to rise into. A chosen card stands well proud of the
+     hand, and without this it covered the very prompt that names it. */
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  text-align: center;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+}
+
+.baazi-turn-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(250, 247, 240, 0.72);
+}
+
+.baazi-turn-banner.is-yours .baazi-turn-title {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--baazi-accent);
+}
+
+.baazi-turn-prompt {
+  font-size: 13px;
+  color: var(--baazi-cream);
+}
+
+.baazi-turn-clock {
+  width: min(220px, 60vw);
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: rgba(250, 247, 240, 0.16);
+  overflow: hidden;
+}
+
+.baazi-turn-clock span {
+  display: block;
+  height: 100%;
+  background: rgba(250, 247, 240, 0.45);
+  transform-origin: left center;
+}
+
+.baazi-turn-banner.is-yours .baazi-turn-clock {
+  height: 4px;
+}
+
+.baazi-turn-banner.is-yours .baazi-turn-clock span {
+  background: var(--baazi-accent);
+}
+
+.baazi-turn-note {
+  font-size: 11px;
+  color: rgba(250, 247, 240, 0.62);
+  max-width: 34ch;
 }
 
 /* Between rounds. Floats over the middle of the blanket instead of taking a row of its own, so
@@ -1174,6 +1318,23 @@ body {
   opacity: 0.4;
 }
 
+/* A card you can play right now: full brightness and a touch more shadow, as though it has been
+   picked up slightly. The actual rise is done by the Dock (see PLAYABLE_LIFT in Hand.tsx), which
+   owns every movement in the hand — nothing here moves the card. */
+.baazi-card.is-playable {
+  box-shadow: 0 7px 16px rgba(0, 0, 0, 0.46);
+}
+
+/* Between your turns the hand rests: a shade quieter, never unreadable — you still plan with it.
+   When your turn comes it wakes up, which is itself a signal that the move is yours. */
+.baazi-hand .baazi-card:not(.baazi-card-back) {
+  transition: filter 260ms ease, opacity 260ms ease, box-shadow 260ms ease;
+}
+
+.baazi-hand.is-waiting .baazi-card:not(.baazi-card-back) {
+  filter: saturate(0.7) brightness(0.9);
+}
+
 /* Card backs: deep navy, which separates from the blanket's gold and green as cleanly as it did
    from the old green felt — it is the one hue the print doesn't contain. Thin cream keyline like a
    real deck; the pattern is two-way symmetric so the back looks the same whichever way it's held. */
@@ -1193,17 +1354,10 @@ body {
 
 /* --- narrow screens --- */
 
-@media (max-width: 560px) {
-  .baazi-app {
-    padding:
-      calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right))
-      calc(10px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
-  }
-
-  /* Whose turn it is is the single most important line on the screen, and three columns cannot
-     share 375px. So on a phone the bar becomes two rows: the turn gets a full-width row of its own
-     with the small controls beside it, and the score drops underneath. Previously the status was
-     being squeezed into a 36px column and wrapping into four unreadable lines. */
+/* Two rows as soon as three columns are tight — a laptop window narrowed to half the screen hits
+   this long before phone width. The turn gets the full-width line it deserves, the small controls
+   sit beside it, and the scores and the lead drop underneath with the whole width to themselves. */
+@media (max-width: 820px) {
   .baazi-topbar {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
@@ -1214,18 +1368,37 @@ body {
 
   .baazi-status {
     grid-area: status;
+  }
+
+  .baazi-topbar-end {
+    grid-area: end;
+  }
+
+  .baazi-scores {
+    grid-area: scores;
+  }
+}
+
+@media (max-width: 560px) {
+  .baazi-app {
+    padding:
+      calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right))
+      calc(10px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
+  }
+
+  /* The two-row bar itself now starts at 820px (above); what is left here is phone sizing. */
+  .baazi-status {
     font-size: 13px;
     font-weight: 600;
     line-height: 1.25;
   }
 
   .baazi-topbar-end {
-    grid-area: end;
     gap: 6px;
   }
 
-  .baazi-scoreline {
-    grid-area: scores;
+  .baazi-match-tally {
+    font-size: 10.5px;
   }
 
   .baazi-table-code {
@@ -1279,32 +1452,29 @@ body {
     gap: 12px;
   }
 
-  .baazi-side-round {
+  /* What each side is up THIS round stays on a phone — it is the number people watch while they
+     play, and the scoreline has a full-width row of its own down here. Only the longer breakdown
+     of it ("(10 + 2 Seep)") is dropped, which is what used to take the whole thing with it. */
+  .baazi-side-round-detail {
     display: none;
   }
 
-  /* On a phone three move options plus a nameplate cannot share one line. The choices take the
-     full width and the nameplate sits under them, at the very edge of the table — which is where
-     you are anyway. */
-  .baazi-bottom-bar {
-    grid-template-columns: minmax(0, 1fr);
-    row-gap: 8px;
-    justify-items: center;
-  }
-
-  .baazi-bottom-bar > .baazi-player-chip {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: center;
-  }
-
-  .baazi-bottom-bar > .baazi-choice-row {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
+  /* On a phone each choice stacks its verb over its detail, so a button is narrow enough for two or
+     three to share a line. As single-line buttons, a card with several legal moves put one choice
+     per row and pushed the table off the bottom of the screen. */
   .baazi-choice-button {
-    padding: 9px 12px;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 7px 10px;
+    min-width: 96px;
+  }
+
+  .baazi-choice-verb {
+    font-size: 10px;
+  }
+
+  .baazi-choice-detail {
     font-size: 13px;
   }
 }

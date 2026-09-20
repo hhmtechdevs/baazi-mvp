@@ -1,4 +1,4 @@
-import { PlayingCard } from './Card';
+import { CardBack, PlayingCard } from './Card';
 import { looseGap, scatterFor } from './scatter';
 import type { Card } from '../types';
 
@@ -14,7 +14,7 @@ import type { Card } from '../types';
  * Each card's small displacement comes from its own id (see scatter.ts), so it keeps the spot it
  * landed in across every re-render instead of shuffling itself on each move.
  */
-export function LooseFloor({ cards }: { cards: Card[] }) {
+export function LooseFloor({ cards, faceDown = false }: { cards: Card[]; faceDown?: boolean }) {
   const gap = looseGap(cards.length);
 
   return (
@@ -30,7 +30,7 @@ export function LooseFloor({ cards }: { cards: Card[] }) {
             className="baazi-loose-card"
             style={{ transform: `translate(${dx}px, ${dy}px) rotate(${rotate}deg)` }}
           >
-            <PlayingCard card={card} />
+            {faceDown ? <CardBack /> : <PlayingCard card={card} />}
           </div>
         );
       })}

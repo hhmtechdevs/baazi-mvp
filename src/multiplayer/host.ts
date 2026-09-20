@@ -84,7 +84,7 @@ export function startTable(envelope: TableEnvelope, dealerSeat: SeatId = 'you', 
     dealerId: dealerSeat,
     gameLengthConfig: { type: 'leadTarget', points: 100 }
   });
-  return bump(envelope, { seats, status: 'playing', game }, true, now);
+  return bump(envelope, { seats, status: 'playing', game, lastRoundScores: null }, true, now);
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +169,9 @@ export function scoreRound(envelope: TableEnvelope, now: number = Date.now()): T
   return bump(envelope, {
     game: { ...envelope.game!, state: result.state },
     lastResult: result,
+    // Kept separately from lastResult, which is cleared as soon as the next round is dealt: the
+    // tally at the top goes on showing what the last round was worth while the new one is played.
+    lastRoundScores: Object.fromEntries(Object.entries(result.breakdown).map(([side, b]) => [side, b.total])),
     status: result.gameOver ? 'finished' : 'playing'
   }, false, now);
 }

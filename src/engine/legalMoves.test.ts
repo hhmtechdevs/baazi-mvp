@@ -222,13 +222,58 @@ describe('legal move discovery — required cases', () => {
     expect(opts.some(o => 'score' in o || 'recommended' in o || 'best' in o)).toBe(false);
   });
 
-  it('bonus: a hand card duplicated in rank can build alone while retaining its twin', () => {
-    const jHearts = card('J', 'hearts');
-    const jClubs = card('J', 'clubs');
-    const state = makeOpeningState({ bidderHand: [jHearts, jClubs], bidValue: 11 });
-    const all = discoverLegalOptionsForHand(state, 'bidder');
-    expect(all[jHearts.id].some(o => o.kind === 'build' && o.floorCardIds.length === 0)).toBe(true);
-    expect(all[jClubs.id].some(o => o.kind === 'build' && o.floorCardIds.length === 0)).toBe(true);
+  // REPLACED — Product Owner correction, post-freeze. This test used to assert the opposite: that
+  // "a hand card duplicated in rank can build alone while retaining its twin", i.e. a lone J with its
+  // twin kept was a legal build of 11. Per the PO, a lone 9/10/J/Q is a LOOSE card and never a
+  // house — and as of 2026-09-19 no rank stands alone at all, King included (see the test below).
+  // Replaced deliberately rather than edited in place, so the history of the rule is visible here
+  // instead of quietly lost.
+  it('a lone 9, 10, J or Q can NOT build alone, even with its twin retained (PO correction)', () => {
+    const cases: [Card['rank'], number][] = [['9', 9], ['10', 10], ['J', 11], ['Q', 12]];
+    for (const [rank, bid] of cases) {
+      const a = card(rank, 'hearts');
+      const b = card(rank, 'clubs');
+      const opening = discoverLegalOptionsForHand(makeOpeningState({ bidderHand: [a, b], bidValue: bid }), 'bidder');
+      expect(opening[a.id].some(o => o.kind === 'build' && o.floorCardIds.length === 0)).toBe(false);
+
+      const normal = discoverLegalOptions(makeNormalState({ hand: [a, b] }), 'p1', a.id);
+      const aloneBuild = normal.filter(
+        o => o.kind === 'build' && o.floorCardIds.length === 0 && o.absorbedLooseCardIds.length === 0
+      );
+      expect(aloneBuild).toHaveLength(0);
+    }
+  });
+
+  // REPLACED — Product Owner, 2026-09-19. The Baazi-specific lone-King exception is gone: this
+  // test used to assert that a King with its twin retained could stand alone as a 13-house. A King
+  // played by itself is now a loose card like any other rank. Replaced rather than deleted so the
+  // history of the rule stays visible.
+  it('a lone King can NOT build alone either, even with its twin retained (exception removed)', () => {
+    const a = card('K', 'hearts');
+    const b = card('K', 'clubs');
+    const opening = discoverLegalOptionsForHand(makeOpeningState({ bidderHand: [a, b], bidValue: 13 }), 'bidder');
+    expect(opening[a.id].some(o => o.kind === 'build' && o.floorCardIds.length === 0)).toBe(false);
+    const normal = discoverLegalOptions(makeNormalState({ hand: [a, b] }), 'p1', a.id);
+    expect(normal.some(o => o.kind === 'build')).toBe(false);
+  });
+
+  it('a lone J CAN build alongside floor cards swept in with it — that house is not "alone" (J + 5 + 6)', () => {
+    const j = card('J', 'hearts');
+    const twin = card('J', 'clubs');
+    const five = card('5', 'spades');
+    const six = card('6', 'hearts');
+    const opts = discoverLegalOptions(makeNormalState({ hand: [j, twin], floorLoose: [five, six] }), 'p1', j.id);
+    const build = opts.find(o => o.kind === 'build' && o.resultingValue === 11);
+    expect(build).toBeDefined();
+    expect(build!.kind === 'build' && build!.absorbedLooseCardIds.sort()).toEqual([five.id, six.id].sort());
+  });
+
+  it('a lone card may still land on an EXISTING house of its value — that is Cement, not a new house', () => {
+    const q = card('Q', 'hearts');
+    const twin = card('Q', 'clubs');
+    const house: House = { id: 'h12', ownerSides: ['p1'], cards: [card('7', 'clubs'), card('5', 'clubs')], captureValue: 12, isCemented: false };
+    const opts = discoverLegalOptions(makeNormalState({ hand: [q, twin], floorHouses: [house] }), 'p1', q.id);
+    expect(opts.some(o => o.kind === 'cement' && o.existingHouseId === 'h12' && o.floorCardIds.length === 0)).toBe(true);
   });
 
   it('mandatory capture: throw is illegal for a card that has an available capture', () => {

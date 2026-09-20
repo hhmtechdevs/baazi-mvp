@@ -291,6 +291,26 @@ describe('the end of a round', () => {
   it('refuses to deal on from a round that has not been scored', () => {
     expect(() => dealNextRound(playToRoundEnd())).toThrow(/no finished round/i);
   });
+
+  // The tally at the top of the table goes on showing what the last round was worth while the next
+  // one is played, so these numbers have to outlive lastResult — which is cleared on the deal.
+  it('keeps what each side scored last round, on the table where everyone reads the same numbers', () => {
+    const ended = playToRoundEnd();
+    expect(ended.lastRoundScores ?? null).toBeNull(); // nothing finished yet
+
+    const scored = nextHostStep(ended, elapsed(ended))!.envelope;
+    const totals = Object.fromEntries(Object.entries(scored.lastResult!.breakdown).map(([side, b]) => [side, b.total]));
+    expect(scored.lastRoundScores).toEqual(totals);
+    if (scored.lastResult!.gameOver) return;
+
+    const next = dealNextRound(scored);
+    expect(next.lastResult).toBeNull(); // the score card is gone
+    expect(next.lastRoundScores).toEqual(totals); // the tally is not
+  });
+
+  it('starts a fresh table with no last round behind it', () => {
+    expect(startTable(seated()).lastRoundScores ?? null).toBeNull();
+  });
 });
 
 // A person gets ten seconds and then the authority plays for them. This is a deliberate,
@@ -316,9 +336,9 @@ describe('running out of time', () => {
     expect(step!.envelope.gameRevision).toBe(table.gameRevision + 1);
   });
 
-  it('gives a person four times as long as a computer seat', () => {
+  it('gives a person thirty seconds — far longer than a computer seat', () => {
     expect(HUMAN_TURN_MS).toBeGreaterThan(AI_TURN_MS);
-    expect(HUMAN_TURN_MS).toBe(20_000);
+    expect(HUMAN_TURN_MS).toBe(30_000);
     expect(AI_TURN_MS).toBe(5_000);
   });
 

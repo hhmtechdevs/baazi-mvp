@@ -112,6 +112,14 @@ function applyBuild(state: GameState, playerId: string, builderCardId: string, f
     throw new Error(`Card ${id} is not a loose card currently on the floor.`);
   }
 
+  // Ingredient 3 validates the opening build independently of discovery, so it applies the same
+  // rule itself: no card forms a house on its own, King included (see Ingredient 4's discovery).
+  if (floorCards.length === 0) {
+    throw new Error(
+      `A ${builderCard.rank} on its own is a loose card, not a house. Build it together with a card from the floor, or play it as a loose card.`
+    );
+  }
+
   const total = rankValue(builderCard.rank) + floorCards.reduce((sum, c) => sum + rankValue(c.rank), 0);
   if (total !== bidValue) {
     throw new Error(`This build totals ${total}, but the bid is ${bidValue}. The build must total exactly the bid value.`);

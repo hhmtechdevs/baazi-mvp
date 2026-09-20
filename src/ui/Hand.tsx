@@ -15,6 +15,11 @@ const MAX_SCALE_BOOST = 0.13;
 const MAX_SPREAD = 26;
 /** Extra lift for the card you've actually chosen, so it reads as picked up rather than hovered. */
 const SELECTED_LIFT = 14;
+/** How far a card with a legal move stands above one without, while a card is being chosen. Small:
+ * enough that the playable ones read as "these", not so much that the hand looks rearranged. It
+ * lives here, in the Dock's own arithmetic, rather than as a CSS transform on the card — the Dock
+ * owns every movement in the hand, so nothing ends up fighting it mid-gesture. */
+const PLAYABLE_LIFT = 7;
 
 /** Base arc: how much each card tilts per step from the middle, and how far the outer ones ride
  * lower. Shallow on purpose — a hand resting in front of you, not a poker rainbow. */
@@ -59,11 +64,15 @@ function clamp(value: number, limit: number): number {
 export function Hand({
   cards,
   selectedId,
+  playableIds,
   isActive = false,
   renderCard
 }: {
   cards: Card[];
   selectedId: string | null;
+  /** Cards with a legal move right now, which stand slightly proud of the rest. Absent when no card
+   * is being chosen, so the hand rests flat. */
+  playableIds?: ReadonlySet<string>;
   /** True while the table is waiting on this hand. Lifts the whole group a little — see the
    * .is-active rule in the stylesheet — underneath, and without disturbing, everything below. */
   isActive?: boolean;
@@ -123,7 +132,11 @@ export function Hand({
 
         // Reaching for a card straightens it and lifts it; its neighbours lean away to make room.
         const rotation = baseRotation * (1 - 0.55 * nearness);
-        const lift = fromMiddle * fromMiddle * ARC_DROP - MAX_LIFT * nearness - (isSelected ? SELECTED_LIFT : 0);
+        const lift =
+          fromMiddle * fromMiddle * ARC_DROP -
+          MAX_LIFT * nearness -
+          (isSelected ? SELECTED_LIFT : 0) -
+          (playableIds?.has(card.id) ? PLAYABLE_LIFT : 0);
         const slide = pointerX === null ? 0 : -MAX_SPREAD * distance * nearness;
         const scale = 1 + MAX_SCALE_BOOST * nearness + (isSelected ? 0.05 : 0);
 
