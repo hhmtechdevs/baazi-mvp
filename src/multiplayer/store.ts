@@ -1,6 +1,6 @@
 import { requireSupabase } from '../supabase';
 import { createEnvelope, generateCode, isUsableEnvelope } from './protocol';
-import type { TableEnvelope } from './protocol';
+import type { TableEnvelope, TableSize } from './protocol';
 
 /**
  * The only file in the project that talks to Supabase.
@@ -55,9 +55,9 @@ export async function saveTable(envelope: TableEnvelope, expectedRevision: numbe
 }
 
 /** Make a new table, retrying on the small chance the code is already taken. */
-export async function createTable(hostSessionId: string, hostName?: string): Promise<TableEnvelope> {
+export async function createTable(hostSessionId: string, hostName?: string, size: TableSize = 4): Promise<TableEnvelope> {
   for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
-    const envelope = createEnvelope(generateCode(), hostSessionId, hostName);
+    const envelope = createEnvelope(generateCode(), hostSessionId, hostName, size);
     const { error } = await requireSupabase().from(TABLE).insert({ code: envelope.code, state: envelope });
     if (!error) return envelope;
     // 23505 is a primary-key collision: that code is in use, so pick another one.

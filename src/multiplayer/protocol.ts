@@ -26,6 +26,30 @@ export const HOST_SEAT: SeatId = 'you';
 export const GUEST_SEAT: SeatId = 'partner';
 
 /**
+ * How many chairs a table has.
+ *
+ * Four is the family game. Two is the same table with the other pair of chairs taken away, so one
+ * person can play another head to head — the engine has always had a two-handed mode (twelve cards
+ * each and a reserve, rather than four packets), and this is what lets a shared table ask for it.
+ *
+ * The two seats are 'you' and 'partner' rather than 'you' and 'left': those are the chairs facing
+ * each other, and keeping them means seating, join order and every seat-keyed lookup carry over
+ * from the four-handed table untouched.
+ */
+export type TableSize = 2 | 4;
+
+export const SEATS_FOR_SIZE: Record<TableSize, SeatId[]> = {
+  2: ['you', 'partner'],
+  4: [...SEAT_ORDER]
+};
+
+/** A table's size, read from the chairs it actually has. Tables written before two-handed play
+ * existed have four seats, so they answer 4 without needing a version bump. */
+export function tableSize(envelope: TableEnvelope): TableSize {
+  return envelope.seats.length === 2 ? 2 : 4;
+}
+
+/**
  * The order open seats are handed out — which is NOT the engine's seat order.
  *
  * The engine pairs seats 0+2 and 1+3, so filling in engine order would put the second person to
@@ -167,7 +191,20 @@ export const SEAT_NAMES: Record<SeatId, string> = {
   right: 'Player 4'
 };
 
-export function createEnvelope(code: string, hostSessionId: string, hostName?: string): TableEnvelope {
+/** What a seat is called before anyone types a name — numbered within its own table, so a
+ * two-handed game reads Player 1 and Player 2 rather than Player 1 and Player 3. */
+export function defaultSeatName(seat: SeatId, size: TableSize): string {
+  const order = SEATS_FOR_SIZE[size];
+  const index = order.indexOf(seat);
+  return index === -1 ? SEAT_NAMES[seat] : `Player ${index + 1}`;
+}
+
+export function createEnvelope(
+  code: string,
+  hostSessionId: string,
+  hostName?: string,
+  size: TableSize = 4
+): TableEnvelope {
   return {
     v: ENVELOPE_VERSION,
     revision: 1,
@@ -176,12 +213,12 @@ export function createEnvelope(code: string, hostSessionId: string, hostName?: s
     status: 'waiting',
     code,
     hostSessionId,
-    // All four seats start open to people. Whoever hasn't turned up by the time the host starts
+    // Every seat starts open to people. Whoever hasn't turned up by the time the host starts
     // becomes a computer seat (see host.startTable) — so one flow covers two players, three, or a
     // full table, instead of the seating being decided before anyone has arrived.
-    seats: SEAT_ORDER.map(seat => ({
+    seats: SEATS_FOR_SIZE[size].map(seat => ({
       seat,
-      name: seat === HOST_SEAT ? hostName?.trim() || SEAT_NAMES[seat] : SEAT_NAMES[seat],
+      name: seat === HOST_SEAT ? hostName?.trim() || defaultSeatName(seat, size) : defaultSeatName(seat, size),
       kind: 'human',
       sessionId: seat === HOST_SEAT ? hostSessionId : null
     })),

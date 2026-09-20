@@ -264,8 +264,13 @@ export function TableView(props: TableProps) {
   const isMyBid = canAct && state.phase === 'bidding' && state.bidderId === mySeat;
   const isMyOpening = canAct && state.phase === 'revealing' && state.bidderId === mySeat;
   // Before the opening move, the bidder has only looked at their first 4 dealt cards.
-  const isPreOpening =
-    (state.phase === 'bidding' || state.phase === 'revealing') && state.bidderId === mySeat;
+  // Before the opening play, eight cards exist as far as the table is concerned: the four on the
+   // floor and the caller's four. Nobody else has turned theirs over yet — not even the dealer, who
+   // is holding cards in four-handed play. Everything turns face up once the call has been made and
+   // played (Product Owner, 2026-09-19).
+  const beforeOpeningPlay = state.phase === 'bidding' || state.phase === 'revealing';
+  const isPreOpening = beforeOpeningPlay && state.bidderId === mySeat;
+  const myHandStillFaceDown = beforeOpeningPlay && state.bidderId !== mySeat;
 
   const seats = seatsAround(state, mySeat);
   const isYourMove = seatAt(seats, 'south')?.isTurn ?? false;
@@ -315,6 +320,20 @@ export function TableView(props: TableProps) {
   const choices = selectedPlan?.kind === 'choose' ? selectedPlan.choices : [];
 
   const floorIsBare = state.floor.loose.length === 0 && state.floor.houses.length === 0;
+
+  // The opening is the one moment the rules narrow the hand for you, and the table used to say
+  // nothing about it: a caller who bid 13 saw their King go dim and a Jack light up, with no hint
+  // that building the called value is compulsory when it is possible. Build > collect > throw the
+  // called card is the frozen order (Ingredient 4); this only reads it out.
+  const openingPrompt = (() => {
+    if (!isMyOpening || selectedCard) return null;
+    const kinds = new Set(Object.values(optionsByCard).flat().map(o => o.kind));
+    const call = state.bidValue;
+    if (kinds.has('build')) return `You called ${call} — a house of ${call} can be built, so that is the play.`;
+    if (kinds.has('capture')) return `You called ${call} — collect with your ${call}.`;
+    if (kinds.has('throw')) return `You called ${call} — put your ${call} down.`;
+    return null;
+  })();
 
   return (
     <div className="baazi-app baazi-blanket">
@@ -416,11 +435,17 @@ export function TableView(props: TableProps) {
             actingName={seats.find(s => s.isTurn && !s.isYou)?.name ?? null}
             // Once a card is chosen, the question moves down to sit with its answers (below the
             // hand). Up here it was covered by the very card it named, which rises as it's picked.
-            prompt={isMyBid ? 'Choose your call' : isChoosingCard && !selectedCard ? 'Tap a card to play it' : null}
+            prompt={
+              isMyBid
+                ? 'Choose your call'
+                : openingPrompt ?? (isChoosingCard && !selectedCard ? 'Tap a card to play it' : null)
+            }
             note={
-              isPreOpening && me.hand.length > VISIBLE_PRE_OPENING_CARD_COUNT
-                ? `You can see your first ${VISIBLE_PRE_OPENING_CARD_COUNT} cards — the rest turn over after your opening play.`
-                : null
+              myHandStillFaceDown
+                ? 'Cards turn over once the call has been played.'
+                : isPreOpening && me.hand.length > VISIBLE_PRE_OPENING_CARD_COUNT
+                  ? `You can see your first ${VISIBLE_PRE_OPENING_CARD_COUNT} cards — the rest turn over after your opening play.`
+                  : null
             }
             turnStartedAt={props.turnStartedAt}
             turnLimitMs={props.turnLimitMs}
@@ -432,6 +457,8 @@ export function TableView(props: TableProps) {
               playableIds={playableIds}
               isActive={isYourMove}
               renderCard={card => {
+                // Not yours to look at yet: the call has not been played, and you are not the caller.
+                if (myHandStillFaceDown) return <CardBack key={card.id} />;
                 const playable = playableIds.has(card.id);
                 return (
                   <PlayingCard

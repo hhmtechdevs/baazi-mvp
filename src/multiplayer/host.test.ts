@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyRequest, dealNextRound, nextHostStep, playAiTurn, startTable } from './host';
-import { AI_TURN_MS, HUMAN_TURN_MS, claimSeat, createEnvelope, expectedActor, seatRecord } from './protocol';
+import { AI_TURN_MS, HUMAN_TURN_MS, claimSeat, createEnvelope, expectedActor, seatOf, seatRecord } from './protocol';
 import type { ActionRequest, SeatId, TableEnvelope } from './protocol';
 import { discoverLegalMoves } from '../engine/roundOrchestrator';
 import { flattenOptionsForHand, toNormalPlayMove } from '../engine/moveAdapter';
@@ -310,6 +310,56 @@ describe('the end of a round', () => {
 
   it('starts a fresh table with no last round behind it', () => {
     expect(startTable(seated()).lastRoundScores ?? null).toBeNull();
+  });
+});
+
+/**
+ * A table can seat two people instead of four (Product Owner, 2026-09-19). The chairs are 'you' and
+ * 'partner' — the two facing each other — and the engine is handed its two-handed mode, which deals
+ * twelve cards each with a reserve rather than four packets. Everything else about a shared table
+ * is deliberately unchanged, which is what this checks.
+ */
+describe('a two-handed table', () => {
+  function twoSeats(): TableEnvelope {
+    const table = createEnvelope('TWOS', HOST, 'Host', 2);
+    const joined = claimSeat(table, 'guest-session', 'Guest');
+    if (!joined.ok) throw new Error(joined.reason);
+    return joined.envelope;
+  }
+
+  it('has two chairs, facing each other, and seats the guest opposite the host', () => {
+    const table = twoSeats();
+    expect(table.seats.map(s => s.seat)).toEqual(['you', 'partner']);
+    expect(table.seats.map(s => s.name)).toEqual(['Host', 'Guest']); // numbered within its own table
+    expect(seatOf(table, 'guest-session')).toBe('partner');
+  });
+
+  it('deals the engine its two-handed game: twelve cards each, a reserve, and no teams', () => {
+    const state = startTable(twoSeats(), 'you').game!.state;
+    expect(state.mode).toBe('2player');
+    expect(state.players.map(p => p.id)).toEqual(['you', 'partner']);
+    expect(state.teams).toEqual([]);
+    const caller = state.players.find(p => p.id === state.bidderId)!;
+    expect(caller.hand).toHaveLength(12);
+    expect(state.floor.loose).toHaveLength(4);
+  });
+
+  it('plays a whole round through the authority and scores it for two sides', () => {
+    let table = startTable(twoSeats(), 'you');
+    let now = Date.now();
+    for (let i = 0; i < 4000 && !table.lastResult; i++) {
+      now += HUMAN_TURN_MS + 1_000;
+      const step = nextHostStep(table, now);
+      if (step) table = step.envelope;
+    }
+    expect(table.lastResult).not.toBeNull();
+    expect(Object.keys(table.lastResult!.breakdown).sort()).toEqual(['partner', 'you']); // each player is a side
+    expect(table.game!.state.floor.houses).toHaveLength(0); // House Key Preservation holds here too
+    expect(table.game!.state.players.every(p => p.hand.length === 0 && p.reserve.length === 0)).toBe(true);
+  });
+
+  it('still makes four-handed tables by default', () => {
+    expect(createEnvelope('FOUR', HOST).seats.map(s => s.seat)).toEqual(['you', 'left', 'partner', 'right']);
   });
 });
 

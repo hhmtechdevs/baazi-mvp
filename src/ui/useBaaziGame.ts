@@ -12,14 +12,12 @@ import {
   submitOpeningAction
 } from '../engine/roundOrchestrator';
 import type { NormalPlayMove } from '../engine/moveExecution';
-import { flattenOptionsForHand, withOnlyVisibleHand } from '../engine/moveAdapter';
+import { VISIBLE_PRE_OPENING_CARD_COUNT, asSeenByCaller, flattenOptionsForHand, withOnlyVisibleHand } from '../engine/moveAdapter';
 import { botChooseBid, botChooseMove, botChooseOpeningAction } from '../botStrategy';
 import { sideLabel } from './table';
 
-/** How many of the bidder's dealt cards are actually visible before their opening move — see
- * withOnlyVisibleHand. Kept here (not re-exported from App.tsx) since this hook needs it too, for
- * the bid-safety check below. */
-export const VISIBLE_PRE_OPENING_CARD_COUNT = 4;
+/** Re-exported so the view layer keeps importing it from here, as it always has. */
+export { VISIBLE_PRE_OPENING_CARD_COUNT, asSeenByCaller } from '../engine/moveAdapter';
 
 // ---------------------------------------------------------------------------
 // The one place React touches the engine. Every state transition here is produced by calling
@@ -264,10 +262,11 @@ export function useBaaziGame() {
     setState(s => ({ ...s, thinkingPlayerId: seatId }));
     timerRef.current = window.setTimeout(() => {
       if (phase === 'bidding') {
-        const value = botChooseBid(game, seatId);
+        // Called from the same four cards a person would be looking at — see asSeenByCaller.
+        const value = botChooseBid(asSeenByCaller(game, seatId), seatId);
         setState(s => ({ ...s, game: submitBid(game, seatId, value), thinkingPlayerId: null, log: [...s.log, `${who} bid ${value}.`] }));
       } else if (phase === 'revealing') {
-        const action = botChooseOpeningAction(game, seatId);
+        const action = botChooseOpeningAction(asSeenByCaller(game, seatId), seatId);
         setState(s => ({
           ...s,
           game: submitOpeningAction(game, seatId, action),

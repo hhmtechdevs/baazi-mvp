@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createTable, loadTable, saveTable, watchTable } from '../multiplayer/store';
 import { dealNextRound, nextHostStep, startTable } from '../multiplayer/host';
 import { claimSeat, expectedActor, normaliseCode, seatOf } from '../multiplayer/protocol';
-import type { ActionRequest, SeatId, TableEnvelope } from '../multiplayer/protocol';
+import type { ActionRequest, SeatId, TableEnvelope, TableSize } from '../multiplayer/protocol';
 import { codeFromUrl, forgetTable, lastTable, rememberTable, sessionId } from '../multiplayer/session';
 import { isSupabaseConfigured } from '../supabase';
 import type { OpeningAction } from '../types';
@@ -39,7 +39,7 @@ export interface MultiplayerTable {
   error: string | null;
   /** A code found in the URL or left over from last time, offered as a way straight back in. */
   suggestedCode: string | null;
-  create: (hostName?: string) => Promise<void>;
+  create: (hostName?: string, size?: TableSize) => Promise<void>;
   join: (code: string, name?: string) => Promise<void>;
   leave: () => void;
   submitBid: (value: number) => void;
@@ -169,11 +169,11 @@ export function useMultiplayerTable(): MultiplayerTable {
   }, [isHost, envelope, adopt]);
 
   // ---- create / join / leave ----------------------------------------------
-  const create = useCallback(async (hostName?: string) => {
+  const create = useCallback(async (hostName?: string, size: TableSize = 4) => {
     setPhase('creating');
     setError(null);
     try {
-      const table = await createTable(me, hostName);
+      const table = await createTable(me, hostName, size);
       rememberTable(table.code);
       adopt(table);
       setPhase('at-table');

@@ -78,11 +78,36 @@ export function flattenOptionsForHand(byCard: Record<string, LegalOption[]>): Le
  * including "retains" — evaluate against only the cards actually visible, with no engine change
  * needed. A card here is a card there, all reachability strictly narrower.
  */
+/** How many of the caller's dealt cards they have actually looked at before their opening play. */
+export const VISIBLE_PRE_OPENING_CARD_COUNT = 4;
+
+/**
+ * The game as the caller can see it while calling and opening: their first four cards, no more.
+ *
+ * A person is already held to this — their bid values are filtered through safeBidValues and their
+ * options discovered against the visible four — but a computer seat used to call and open from its
+ * whole hand. In two-handed play that is twelve cards against four: across 150 seeded rounds the
+ * computer called a value 27 times that would have left a person with no legal opening move, then
+ * played one anyway off cards nobody had turned over. Four-handed play was never affected, since
+ * the caller holds only four. Product Owner, 2026-09-19: before the opening play nothing is visible
+ * but the floor's four and the caller's four, and that binds both kinds of player.
+ */
+export function asSeenByCaller(game: OrchestratedGame, playerId: string): OrchestratedGame {
+  return withOnlyVisibleHand(game, playerId, VISIBLE_PRE_OPENING_CARD_COUNT);
+}
+
 export function withOnlyVisibleHand(game: OrchestratedGame, playerId: string, visibleCount: number): OrchestratedGame {
+  const player = game.state.players.find(p => p.id === playerId);
+  // The cards being hidden go back into the deck rather than off the table altogether, so the view
+  // still holds all 52 and anything that walks a whole game — a bot weighing a call by playing it
+  // out, the engine's own card invariant — keeps working on it. They are unknown to this view
+  // either way, which is the entire point.
+  const hidden = player ? player.hand.slice(visibleCount) : [];
   return {
     ...game,
     state: {
       ...game.state,
+      deck: [...game.state.deck, ...hidden],
       players: game.state.players.map(p => (p.id === playerId ? { ...p, hand: p.hand.slice(0, visibleCount) } : p))
     }
   };

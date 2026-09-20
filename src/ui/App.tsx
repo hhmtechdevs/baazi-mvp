@@ -194,9 +194,20 @@ function FamilyDoor({ table, onBack }: { table: MultiplayerTable; onBack: () => 
       />
       {table.error && <p className="baazi-form-error">{table.error}</p>}
       <div className="baazi-seat-choice">
-        <button onClick={() => void table.create(name || undefined)} disabled={busy}>
-          <span className="baazi-seat-name">{table.phase === 'creating' ? 'Making the table…' : 'Create game'}</span>
-          <span className="baazi-seat-detail">You get a code to read out.</span>
+        {/* Two ways to make a table, because they are genuinely different games: four chairs is the
+            partnership game, two is head to head with twelve cards each and a reserve. Whoever
+            hasn't arrived by the time the host starts is played by the computer, either way. */}
+        <button onClick={() => void table.create(name || undefined, 4)} disabled={busy}>
+          <span className="baazi-seat-name">
+            {table.phase === 'creating' ? 'Making the table…' : 'Create game — four players'}
+          </span>
+          <span className="baazi-seat-detail">Two against two. You get a code to read out.</span>
+        </button>
+        <button onClick={() => void table.create(name || undefined, 2)} disabled={busy}>
+          <span className="baazi-seat-name">
+            {table.phase === 'creating' ? 'Making the table…' : 'Create game — two players'}
+          </span>
+          <span className="baazi-seat-detail">Head to head, twelve cards each.</span>
         </button>
         <button onClick={() => setMode('join')}>
           <span className="baazi-seat-name">Join game</span>

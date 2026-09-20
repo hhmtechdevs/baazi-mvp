@@ -1,5 +1,6 @@
 import { completeRound, startNextRound, startRound, submitBid, submitMove, submitOpeningAction } from '../engine/roundOrchestrator';
 import { botChooseBid, botChooseMove, botChooseOpeningAction } from '../botStrategy';
+import { asSeenByCaller } from '../engine/moveAdapter';
 import type { OpeningAction } from '../types';
 import type { NormalPlayMove } from '../engine/moveExecution';
 import {
@@ -76,11 +77,10 @@ export function startTable(envelope: TableEnvelope, dealerSeat: SeatId = 'you', 
   );
   const game = startRound({
     gameId: `baazi-${envelope.code}-${Date.now()}`,
-    mode: '4player',
-    players: SEAT_ORDER.map(seat => ({
-      id: seat,
-      name: seats.find(s => s.seat === seat)?.name ?? SEAT_NAMES[seat]
-    })),
+    // Two chairs means the engine's two-handed deal (twelve each and a reserve); four means the
+    // partnership game. The seats are already in engine order, which is what pairs 0+2 and 1+3.
+    mode: seats.length === 2 ? '2player' : '4player',
+    players: seats.map(s => ({ id: s.seat, name: s.name })),
     dealerId: dealerSeat,
     gameLengthConfig: { type: 'leadTarget', points: 100 }
   });
@@ -245,9 +245,12 @@ export function playTurnFor(envelope: TableEnvelope, seat: SeatId, now: number =
   if (expectedActor(envelope) !== seat) throw new Error(`It is not ${seat}'s turn.`);
 
   const phase = game.state.phase;
-  if (phase === 'bidding') return bump(envelope, { game: submitBid(game, seat, botChooseBid(game, seat)) }, true, now);
+  // Calling and opening happen from the four cards a person would see, never the whole hand.
+  if (phase === 'bidding') {
+    return bump(envelope, { game: submitBid(game, seat, botChooseBid(asSeenByCaller(game, seat), seat)) }, true, now);
+  }
   if (phase === 'revealing') {
-    return bump(envelope, { game: submitOpeningAction(game, seat, botChooseOpeningAction(game, seat)) }, true, now);
+    return bump(envelope, { game: submitOpeningAction(game, seat, botChooseOpeningAction(asSeenByCaller(game, seat), seat)) }, true, now);
   }
   return bump(envelope, { game: submitMove(game, seat, botChooseMove(game, seat)) }, true, now);
 }
