@@ -9,12 +9,13 @@ import {
   GUEST_SEAT,
   HOST_SEAT,
   isUsableEnvelope,
+  HUMAN_TURN_MS,
   normaliseCode,
   seatOf,
   seatRecord
 } from './protocol';
 import type { ActionRequest, TableEnvelope } from './protocol';
-import { startTable } from './host';
+import { nextHostStep, startTable } from './host';
 
 const HOST = 'session-divjot';
 const GUEST = 'session-sydney';
@@ -246,5 +247,57 @@ describe('reading whose turn it is off the engine', () => {
   it('reports nobody once there is no game', () => {
     expect(expectedActor(waiting())).toBeNull();
     expect(awaitingAi(waiting())).toBeNull();
+  });
+});
+
+/**
+ * Sitting down may fill a seat; it may never carry the table backwards.
+ *
+ * Found by seeding a mid-game table to reproduce an opening position. The seeded table was
+ * 'playing' with one seat open; the join that filled it set the status to 'ready', and since
+ * nextHostStep ignores anything that is not 'playing', the authority stopped applying moves. The
+ * table froze with a legal, authorised request sitting unread — no error, no rejection, nothing on
+ * screen to explain it.
+ */
+describe('claimSeat never regresses a table that is already under way', () => {
+  function twoSeatTable(status: TableEnvelope['status']): TableEnvelope {
+    const table = createEnvelope('BTTT', HOST, 'Host', 2);
+    return { ...table, status };
+  }
+
+  it('still promotes a waiting table to ready once the last seat fills', () => {
+    const claim = claimSeat(twoSeatTable('waiting'), GUEST, 'Sydney');
+    expect(claim.ok).toBe(true);
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(claim.envelope.status).toBe('ready');
+  });
+
+  it('leaves a playing table playing', () => {
+    const claim = claimSeat(twoSeatTable('playing'), GUEST, 'Sydney');
+    expect(claim.ok).toBe(true);
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(claim.envelope.status).toBe('playing');
+    expect(seatOf(claim.envelope, GUEST)).toBe(GUEST_SEAT); // the seat is still filled
+  });
+
+  it('leaves a finished table finished', () => {
+    const claim = claimSeat(twoSeatTable('finished'), GUEST, 'Sydney');
+    expect(claim.ok).toBe(true);
+    if (!claim.ok) throw new Error(claim.reason);
+    expect(claim.envelope.status).toBe('finished');
+  });
+
+  it('keeps the authority working after somebody joins a game in progress', () => {
+    // The consequence that actually bit: a frozen table with an unread request.
+    const playing = startTable(twoSeatTable('waiting'), 'you');
+    const open: TableEnvelope = {
+      ...playing,
+      seats: playing.seats.map(s => (s.seat === GUEST_SEAT ? { ...s, kind: 'human' as const, sessionId: null } : s))
+    };
+    const claim = claimSeat(open, GUEST, 'Sydney');
+    if (!claim.ok) throw new Error(claim.reason);
+
+    expect(claim.envelope.status).toBe('playing');
+    expect(nextHostStep(claim.envelope, Date.now() + HUMAN_TURN_MS + 1_000)).not.toBeNull();
   });
 });

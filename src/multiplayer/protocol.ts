@@ -287,7 +287,16 @@ export function claimSeat(envelope: TableEnvelope, sessionId: string, name?: str
   // Below that, the host decides when to start — otherwise a four-handed table would deal itself
   // the moment the second person sat down. The host, not the joiner, always starts the round: one
   // writer owns every piece of game state.
+  //
+  // Filling a seat only ever moves a table FORWARD, from waiting to ready. It must never carry one
+  // backwards: a table that is already playing stays playing, and a finished one stays finished.
+  // Without that, somebody sitting down at a game in progress would reset its status to 'ready',
+  // and nextHostStep ignores everything that is not 'playing' — so the authority would quietly stop
+  // applying moves and the table would freeze with a legal, authorised request sitting unread.
+  // Found by seeding a mid-game table to reproduce an opening position: the seeded table had one
+  // open seat, and the join that filled it stopped the game dead.
   const stillOpen = seats.some(s => s.kind === 'human' && s.sessionId === null);
+  const status = stillOpen || envelope.status !== 'waiting' ? envelope.status : 'ready';
   return {
     ok: true,
     seat: open.seat,
@@ -295,7 +304,7 @@ export function claimSeat(envelope: TableEnvelope, sessionId: string, name?: str
     envelope: {
       ...envelope,
       seats,
-      status: stillOpen ? envelope.status : 'ready',
+      status,
       revision: envelope.revision + 1
     }
   };
