@@ -13,14 +13,18 @@ export function PlayingCard({
   selected,
   dimmed,
   playable,
+  actionable,
   onClick
 }: {
   card: Card;
   selected?: boolean;
   dimmed?: boolean;
-  /** This card has at least one legal move right now — as decided by the engine, not by the card.
-   * Drawn a little raised and fully bright, so a glance at the hand says which cards to consider. */
+  /** This card has at least one legal move right now — as decided by the engine, not by the card. */
   playable?: boolean;
+  /** That legal move is more than putting it down: it can collect, build, cement or add. Only these
+   * are raised and brightened. A hand where nothing can be taken should LOOK like one, rather than
+   * advertising every card equally and leaving the player to find that out one tap at a time. */
+  actionable?: boolean;
   onClick?: () => void;
 }) {
   const isRed = card.suit === 'hearts' || card.suit === 'diamonds';
@@ -34,6 +38,7 @@ export function PlayingCard({
     selected ? 'is-selected' : '',
     dimmed ? 'is-dimmed' : '',
     playable ? 'is-playable' : '',
+    actionable ? 'is-actionable' : '',
     onClick ? 'is-clickable' : ''
   ]
     .filter(Boolean)

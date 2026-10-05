@@ -68,6 +68,34 @@ export interface Choice {
   /** What exactly happens — "7 + 4", "(5 + 6) = 11", "[11] · Seep". Empty for PLAY CARD, whose verb
    * already says everything there is to say. */
   detail: string;
+  /** This capture would clear the floor: a sweep, and the biggest single swing in the game. The
+   * engine works it out (LegalCaptureOption.isSeep); it was simply never shown. */
+  sweeps?: boolean;
+  /** Taking this would leave the floor one capture from empty — i.e. hand the next player a sweep.
+   * Worked out from the option itself: what it takes, against what is on the floor now. */
+  opensSweep?: boolean;
+}
+
+/**
+ * What the floor would hold after this move — loose cards plus houses, counted as the things a
+ * single capture would still have to clear.
+ *
+ * A build or a cement always leaves a house behind, so the count never drops to the danger point
+ * through those; only a capture can strip the floor down.
+ */
+function floorLeftAfter(option: LegalOption, state: GameState): number {
+  const loose = state.floor.loose.length;
+  const houses = state.floor.houses.length;
+  if (option.kind === 'throw') return loose + 1 + houses;
+  if (option.kind === 'capture') {
+    const takenLoose = option.targets.filter(t => t.type === 'loose').length;
+    const takenHouses = option.targets.filter(t => t.type === 'house').length;
+    return loose - takenLoose + (houses - takenHouses);
+  }
+  // Everything else lands cards into a house: the floor keeps at least that house.
+  const used = ('floorCardIds' in option ? option.floorCardIds.length : 0) + option.absorbedLooseCardIds.length;
+  const housesAfter = option.kind === 'build' ? houses + 1 : option.kind === 'mergeFix' ? houses - 1 : houses;
+  return loose - used + housesAfter;
 }
 
 /**
@@ -81,7 +109,9 @@ export function choicesForCard(options: LegalOption[], state: GameState): Choice
   const named = options.map((option, i) => ({
     option,
     verb: verbFor(option),
-    detail: detailFrom(option, labels[i])
+    detail: detailFrom(option, labels[i]),
+    sweeps: option.kind === 'capture' && option.isSeep,
+    opensSweep: floorLeftAfter(option, state) === 1
   }));
   // Stable sort: within one verb, the engine's own order is kept.
   return named

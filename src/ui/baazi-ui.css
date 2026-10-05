@@ -1318,11 +1318,18 @@ body {
   opacity: 0.4;
 }
 
-/* A card you can play right now: full brightness and a touch more shadow, as though it has been
-   picked up slightly. The actual rise is done by the Dock (see PLAYABLE_LIFT in Hand.tsx), which
-   owns every movement in the hand — nothing here moves the card. */
+/* A card you can play right now. The actual rise is done by the Dock (see PLAYABLE_LIFT in
+   Hand.tsx), which owns every movement in the hand — nothing here moves the card.
+
+   Two levels, deliberately: a card that can only be put down is simply legal, while a card that can
+   COLLECT or make a house is an opportunity and gets the shadow and the warm edge. A hand where
+   nothing can be taken should look like one. */
 .baazi-card.is-playable {
-  box-shadow: 0 7px 16px rgba(0, 0, 0, 0.46);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.36);
+}
+
+.baazi-card.is-actionable {
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(232, 183, 101, 0.55);
 }
 
 /* Between your turns the hand rests: a shade quieter, never unreadable — you still plan with it.
@@ -1481,3 +1488,208 @@ body {
 
 /* The event log ("What's happened") is intentionally not rendered right now — the hook still
    records it, so bringing the panel back is a UI-only change if testing shows we want it. */
+
+
+/* ---------------------------------------------------------------------------
+   Saying what happened.
+
+   Everything below exists because the engine already knew something the table never said: what the
+   last move was, what the floor is worth, which move hands the next player a sweep, what a house is
+   made of, and where a round's points actually came from. None of it is a new rule; all of it is
+   the same information, finally spoken.
+   --------------------------------------------------------------------------- */
+
+/* The move that just happened — whoever made it. One line, quiet, directly above the hand where
+   the player is already looking. */
+.baazi-receipt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  min-height: 18px;
+  font-size: 12px;
+  color: rgba(250, 247, 240, 0.72);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.baazi-receipt-who {
+  font-weight: 700;
+  color: rgba(250, 247, 240, 0.9);
+}
+
+.baazi-receipt-points {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--baazi-accent);
+}
+
+/* A sweep is the biggest swing in the game and used to pass in silence — the score simply moved.
+   It gets the one piece of emphasis on this line, and nothing else does. */
+.baazi-receipt-seep {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--baazi-accent);
+  color: #2c1e0c;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.baazi-receipt.is-seep {
+  color: var(--baazi-cream);
+}
+
+/* What the floor is worth, and whether it is one capture from being given away. Sits under the
+   loose cards, in the same breath as the thing it describes. */
+.baazi-floor-state {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.baazi-floor-points {
+  color: rgba(250, 247, 240, 0.72);
+}
+
+.baazi-floor-warning {
+  color: var(--baazi-accent);
+  font-weight: 700;
+}
+
+/* A flag on a choice: this one clears the floor, or this one leaves it clearable. */
+.baazi-choice-flag {
+  display: block;
+  width: 100%;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.baazi-choice-flag.is-good {
+  color: var(--baazi-accent);
+}
+
+.baazi-choice-flag.is-warn {
+  color: #e0a07f;
+}
+
+.baazi-choice-button.is-sweep {
+  border-color: var(--baazi-accent);
+}
+
+/* A house, read from across the table: what it is worth, whose it is, and whether you are holding
+   the card that takes it back. The cards it is made of stay one press away. */
+.baazi-house-meta {
+  display: block;
+  max-width: 140px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: rgba(250, 247, 240, 0.6);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* The number the player is actually asking for. A house holding nothing says so quietly; one with
+   points in it is worth crossing the table for, and reads that way. */
+.baazi-house-worth {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.baazi-house-worth.is-scoring {
+  color: var(--baazi-accent);
+}
+
+.baazi-house-owner {
+  color: rgba(250, 247, 240, 0.6);
+}
+
+.baazi-house-key {
+  color: var(--baazi-accent);
+}
+
+/* The score card at the end of a round: where the points came from, which is the question a single
+   number can never answer in a game where one sweep can outweigh every card on the table. */
+.baazi-score-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  min-width: 232px;
+}
+
+.baazi-score-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.baazi-score-side {
+  font-weight: 700;
+}
+
+.baazi-score-parts {
+  font-size: 12px;
+  color: rgba(250, 247, 240, 0.7);
+}
+
+.baazi-score-sweep {
+  color: var(--baazi-accent);
+}
+
+.baazi-score-total {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--baazi-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A card on its way from the hand to wherever it actually went. Fixed to the viewport so it can
+   cross the table without disturbing a single element it passes. */
+.baazi-flight {
+  position: fixed;
+  z-index: 3000;
+  pointer-events: none;
+  transition: transform 420ms cubic-bezier(0.22, 0.61, 0.36, 1), opacity 420ms ease;
+}
+
+.baazi-flight.is-landing {
+  opacity: 0.35;
+}
+
+/* Where it landed, acknowledging the arrival. */
+@keyframes baazi-landed {
+  0% { box-shadow: 0 0 0 0 rgba(232, 183, 101, 0); }
+  35% { box-shadow: 0 0 0 4px rgba(232, 183, 101, 0.5); }
+  100% { box-shadow: 0 0 0 0 rgba(232, 183, 101, 0); }
+}
+
+.baazi-landed {
+  animation: baazi-landed 620ms ease-out;
+}
+
+@media (max-width: 560px) {
+  .baazi-receipt {
+    font-size: 11px;
+  }
+
+  .baazi-house-meta {
+    max-width: 112px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .baazi-flight {
+    transition: none;
+  }
+
+  .baazi-landed {
+    animation: none;
+  }
+}

@@ -220,7 +220,7 @@ function FamilyDoor({ table, onBack }: { table: MultiplayerTable; onBack: () => 
 
 function PracticeGame({ config, onLeave }: { config: GameLengthConfig; onLeave: () => void }) {
   const g = useBaaziGame();
-  const { startNewGame } = g;
+  const { startNewGame, finishRound, isRoundComplete, lastRoundResult } = g;
 
   useEffect(() => {
     startNewGame(config, 'practice');
@@ -228,6 +228,13 @@ function PracticeGame({ config, onLeave }: { config: GameLengthConfig; onLeave: 
     // every frame.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Score the round as soon as the cards run out, the way a shared table already does. Practice
+  // used to stop at "Round complete — See the score", so the same moment looked like two different
+  // games depending on which door you came in by.
+  useEffect(() => {
+    if (isRoundComplete && !lastRoundResult) finishRound();
+  }, [isRoundComplete, lastRoundResult, finishRound]);
 
   if (!g.game) return null;
 
@@ -240,10 +247,8 @@ function PracticeGame({ config, onLeave }: { config: GameLengthConfig; onLeave: 
       onBid={g.submitHumanBid}
       onOpeningAction={g.submitHumanOpeningAction}
       onMove={g.submitHumanMove}
-      roundComplete={g.isRoundComplete}
       lastRoundResult={g.lastRoundResult}
       lastRoundScores={g.lastRoundScores}
-      onFinishRound={g.finishRound}
       onNextRound={g.lastRoundResult?.gameOver ? onLeave : g.startNextRoundClicked}
     />
   );
@@ -286,7 +291,6 @@ function SharedGame({ table, onLeave }: { table: MultiplayerTable; onLeave: () =
       onBid={table.submitBid}
       onOpeningAction={table.submitOpeningAction}
       onMove={table.submitMove}
-      roundComplete={false}
       lastRoundResult={envelope.lastResult}
       lastRoundScores={envelope.lastRoundScores ?? null}
       onNextRound={table.dealNext ?? undefined}
@@ -294,6 +298,7 @@ function SharedGame({ table, onLeave }: { table: MultiplayerTable; onLeave: () =
       tableCode={envelope.code}
       turnStartedAt={envelope.turnStartedAt || undefined}
       turnLimitMs={actor ? turnLimitMs(envelope, actor) : undefined}
+      playedForYou={!!table.mySeat && envelope.playedForSeat === table.mySeat}
       notice={
         table.error ? (
           <div className="baazi-interlude baazi-interlude-quiet">

@@ -13,6 +13,19 @@ import type { NormalPlayMove } from '../engine/moveExecution';
 const HOST_TICK_MS = 1_000;
 
 /**
+ * `?noclock` on the HOST's address bar: nobody's turn is ever taken from them.
+ *
+ * For sitting with the game rather than racing it — studying a position, talking through a rule,
+ * deciding what to refine. Only the host's browser runs the clock, so only the host's URL decides,
+ * and the shipped behaviour is untouched for everyone who does not type it. Computer seats still
+ * play after their usual beat, so a table with bots keeps moving.
+ */
+function clockDisabled(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).has('noclock');
+}
+
+/**
  * One real table, shared between two browsers.
  *
  * The shape of it: every browser READS the same row and renders it, and exactly one browser — the
@@ -142,6 +155,9 @@ export function useMultiplayerTable(): MultiplayerTable {
 
       const step = nextHostStep(from, Date.now());
       if (!step) return;
+      // Taking a person's turn is the only thing ?noclock suppresses — dealing, scoring, applying
+      // requests and computer seats all carry on exactly as they do normally.
+      if (step.kind === 'play' && step.onBehalfOfPerson && clockDisabled()) return;
 
       writing.current = true;
       try {

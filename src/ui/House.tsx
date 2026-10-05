@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import { PlayingCard } from './Card';
+import { housePoints } from './moveNarrative';
+import type { Card } from '../types';
+
+const SUIT_SYMBOL: Record<Card['suit'], string> = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
 import { fanAngles, fanRadius, fanScale } from './fan';
 import type { House as HouseType } from '../types';
 
@@ -49,15 +53,21 @@ function ownership(
 export function House({
   house,
   yourOwnerIds,
-  labelForOwner
+  labelForOwner,
+  keyHeld
 }: {
   house: HouseType;
   yourOwnerIds: string[];
   labelForOwner: (owner: string) => string;
+  /** Whether YOU are holding a card that matches this house's value. Shown only on a house your
+   * side owns, where it is the thing that decides whether those cards ever come back to you — and
+   * where the key rule means that card can do nothing else until the house is taken. */
+  keyHeld?: boolean;
 }) {
   const [held, setHeld] = useState(false);
   const owner = ownership(house, yourOwnerIds, labelForOwner);
   const count = house.cards.length;
+  const points = housePoints(house);
 
   const angles = fanAngles(count, DEGREES_PER_CARD, MAX_SPREAD);
   const scale = fanScale(count, COMFORTABLE_CARDS, MIN_SCALE);
@@ -75,7 +85,7 @@ export function House({
   const release = () => setHeld(false);
 
   return (
-    <div className={`baazi-house-tile ${held ? 'is-held' : ''}`}>
+    <div className={`baazi-house-tile ${held ? 'is-held' : ''}`} data-house-id={house.id}>
       {held && (
         <div className="baazi-house-fan" aria-hidden="true">
           {house.cards.map((card, i) => (
@@ -101,6 +111,18 @@ export function House({
         {house.captureValue}
       </span>
 
+      {/* What the house is WORTH, which is the question actually being asked of it. Naming its cards
+          here only asked the player to add up spades in their head; two houses of 11 can hold
+          nineteen points or none, and that is the difference worth seeing from across the table.
+          The cards themselves stay one press away. */}
+      <span className="baazi-house-meta">
+        <span className={`baazi-house-worth ${points > 0 ? 'is-scoring' : ''}`}>
+          {points} {points === 1 ? 'pt' : 'pts'}
+        </span>
+        {owner.label && <span className="baazi-house-owner"> · {owner.label}</span>}
+        {keyHeld && <span className="baazi-house-key"> · you hold the {house.captureValue}</span>}
+      </span>
+
       <button
         type="button"
         className={`baazi-house ${house.isCemented ? 'is-cemented' : ''} ${owner.className}`}
@@ -108,7 +130,9 @@ export function House({
         onPointerUp={release}
         onPointerCancel={release}
         onContextMenu={event => event.preventDefault()}
-        aria-label={`House of ${house.captureValue}, ${owner.label || 'unowned'}, ${count} cards. Press and hold to fan open.`}
+        aria-label={`House of ${house.captureValue}, ${owner.label || 'unowned'}, worth ${points} ${
+          points === 1 ? 'point' : 'points'
+        }: ${house.cards.map(c => `${c.rank}${SUIT_SYMBOL[c.suit]}`).join(', ')}. Press and hold to fan open.`}
       >
         {house.cards.map((card, i) => (
           <span key={card.id} className="baazi-house-card-slot" style={{ zIndex: i }}>

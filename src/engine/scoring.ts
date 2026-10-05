@@ -61,15 +61,18 @@ export function cardPoints(card: Card): number {
   return 0;
 }
 
-/** The sweep-value schedule: opening-play sweeps get 25, the literal final play of the round gets
- * 0, every other sweep gets the normal 50 — including a sweep on the second-to-last play, which
- * is explicitly still a normal 50-point sweep per the frozen rule (isFinalPlay only true for the
- * literal last card, never inferred from "close to the end"). isFinalPlay takes precedence over
- * isOpeningPlay in the (practically unreachable, given real deal sizes) case both were somehow
- * true at once. */
+/**
+ * The sweep-value schedule: 50 for a sweep, and 0 for one made with the literal last card of the
+ * round. A sweep on the second-to-last play is explicitly still a normal 50 (isFinalPlay is only
+ * ever true for the literal last card, never inferred from "close to the end").
+ *
+ * PRODUCT OWNER, 2026-10-05: Baazi pays 50 for a sweep made on the opening play as well. Pagat
+ * halves that one to 25; this game does not, and the exception is gone rather than being carried
+ * as dead weight. `isOpeningPlay` is still recorded on the sweep — it is a true fact about when
+ * the sweep happened, and worth keeping — it simply no longer changes what the sweep pays.
+ */
 export function sweepPoints(record: SweepRecord): number {
   if (record.isFinalPlay) return 0;
-  if (record.isOpeningPlay) return 25;
   return 50;
 }
 

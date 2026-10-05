@@ -64,7 +64,7 @@ function clamp(value: number, limit: number): number {
 export function Hand({
   cards,
   selectedId,
-  playableIds,
+  liftedIds,
   isActive = false,
   renderCard
 }: {
@@ -72,7 +72,9 @@ export function Hand({
   selectedId: string | null;
   /** Cards with a legal move right now, which stand slightly proud of the rest. Absent when no card
    * is being chosen, so the hand rests flat. */
-  playableIds?: ReadonlySet<string>;
+  /** Cards drawn a little proud of the rest: the ones that can actually take or make something.
+   * Lifting every legal card instead made a hand of pure discards look full of opportunities. */
+  liftedIds?: ReadonlySet<string>;
   /** True while the table is waiting on this hand. Lifts the whole group a little — see the
    * .is-active rule in the stylesheet — underneath, and without disturbing, everything below. */
   isActive?: boolean;
@@ -136,13 +138,14 @@ export function Hand({
           fromMiddle * fromMiddle * ARC_DROP -
           MAX_LIFT * nearness -
           (isSelected ? SELECTED_LIFT : 0) -
-          (playableIds?.has(card.id) ? PLAYABLE_LIFT : 0);
+          (liftedIds?.has(card.id) ? PLAYABLE_LIFT : 0);
         const slide = pointerX === null ? 0 : -MAX_SPREAD * distance * nearness;
         const scale = 1 + MAX_SCALE_BOOST * nearness + (isSelected ? 0.05 : 0);
 
         return (
           <div
             key={card.id}
+            data-card-id={card.id}
             className={`baazi-hand-slot ${isSelected ? 'is-selected' : ''}`}
             style={{
               marginLeft: i === 0 ? 0 : -overlap,

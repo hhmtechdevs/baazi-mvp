@@ -202,14 +202,32 @@ describe('legal move discovery — required cases', () => {
     expect((build as any).floorCardIds).toContain(five.id);
   });
 
-  it('11. Build Priority is respected: when a legal build exists, nothing else is offered anywhere in the hand', () => {
+  // REPLACED — Product Owner correction, 2026-10-05. This used to assert strict Build Priority:
+  // "when a legal build exists, nothing else is offered anywhere in the hand". That rule hid a real
+  // opening capture in live play — see multiGroupCapture.test.ts for the position that killed it.
+  // Build and capture are now alternatives the caller picks between; only throwing waits behind
+  // them, and the bid-value lock is untouched.
+  it('11. at the opening, a build does not take away the called card’s capture', () => {
     const two = card('2', 'clubs');
     const j = card('J', 'hearts');
     const state = makeOpeningState({ bidderHand: [two, j], floorLoose: [card('6', 'spades'), card('3', 'diamonds')], bidValue: 11 });
     const all = discoverLegalOptionsForHand(state, 'bidder');
-    const everything = Object.values(all).flat();
-    expect(everything.every(o => o.kind === 'build')).toBe(true);
+
+    // 2 + 6 + 3 = 11 builds; the J has nothing to take here, so building is all there is.
     expect(all[two.id].some(o => o.kind === 'build')).toBe(true);
+    expect(Object.values(all).flat().every(o => o.kind === 'build')).toBe(true);
+
+    // Give the J something to take and the capture stands beside the build rather than behind it.
+    const withCapture = makeOpeningState({
+      bidderHand: [two, j],
+      floorLoose: [card('6', 'spades'), card('3', 'diamonds'), card('J', 'spades')],
+      bidValue: 11
+    });
+    const offered = discoverLegalOptionsForHand(withCapture, 'bidder');
+    expect(offered[j.id].some(o => o.kind === 'capture')).toBe(true);
+    expect(offered[two.id].some(o => o.kind === 'build')).toBe(true);
+    // Throwing still waits behind both.
+    expect(Object.values(offered).flat().some(o => o.kind === 'throw')).toBe(false);
   });
 
   it('12. no strategic ranking or recommendation fields are produced', () => {

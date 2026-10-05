@@ -84,7 +84,7 @@ export function startTable(envelope: TableEnvelope, dealerSeat: SeatId = 'you', 
     dealerId: dealerSeat,
     gameLengthConfig: { type: 'leadTarget', points: 100 }
   });
-  return bump(envelope, { seats, status: 'playing', game, lastRoundScores: null }, true, now);
+  return bump(envelope, { seats, status: 'playing', game, lastRoundScores: null, playedForSeat: null }, true, now);
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +119,14 @@ export function applyRequest(envelope: TableEnvelope, request: ActionRequest, no
       applied: true,
       envelope: bump(
         envelope,
-        { game: next, request: null, lastAppliedRequestId: request.id, lastRejection: null },
+        {
+          game: next,
+          request: null,
+          lastAppliedRequestId: request.id,
+          lastRejection: null,
+          // They are playing again, so the note about their missed turn has said its piece.
+          playedForSeat: envelope.playedForSeat === request.seat ? null : envelope.playedForSeat
+        },
         true,
         now
       )
@@ -184,7 +191,7 @@ export function dealNextRound(envelope: TableEnvelope, now: number = Date.now())
   const result = envelope.lastResult;
   if (!result) throw new Error('There is no finished round to deal on from.');
   if (result.gameOver) throw new Error('The game is over.');
-  return bump(envelope, { game: startNextRound(envelope.game!, result), lastResult: null }, true, now);
+  return bump(envelope, { game: startNextRound(envelope.game!, result), lastResult: null, playedForSeat: null }, true, now);
 }
 
 /**
@@ -225,11 +232,15 @@ export function nextHostStep(envelope: TableEnvelope, now: number = Date.now()):
   if (!actor) return null;
   if (now - envelope.turnStartedAt < turnLimitMs(envelope, actor)) return null;
 
+  const onBehalfOfPerson = seatRecord(envelope, actor)?.kind === 'human';
+  const played = playTurnFor(envelope, actor, now);
   return {
     kind: 'play',
     seat: actor,
-    onBehalfOfPerson: seatRecord(envelope, actor)?.kind === 'human',
-    envelope: playTurnFor(envelope, actor, now)
+    onBehalfOfPerson,
+    // Recorded on the same write as the move, not a second one, so the table still changes once.
+    // Only for a person: a computer seat playing on time is not news.
+    envelope: onBehalfOfPerson ? { ...played, playedForSeat: actor } : played
   };
 }
 

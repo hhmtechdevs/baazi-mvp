@@ -11,3 +11,9 @@ dist/
 .env.*.local
 
 .DS_Store
+
+# Claude Code's local working files. Background tasks create git worktrees under .claude/worktrees
+# — each one a full second copy of this repository (166 MB as of writing) — and launch.json is this
+# machine's dev-server config. None of it belongs in the repo, and a stray `git add .` would
+# otherwise sweep a whole worktree in.
+.claude/

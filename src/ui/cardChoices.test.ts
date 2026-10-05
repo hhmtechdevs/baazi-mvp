@@ -179,3 +179,46 @@ describe('plain words at the table', () => {
     expect(verbFor({ kind: 'mergeFix', ...base, existingHouseId: 'h', targetHouseId: 't', resultingOwnerSides: ['p1'] })).toBe('BUILD HOUSE');
   });
 });
+
+/**
+ * The two things about a move that a player cannot work out by looking: that it clears the floor,
+ * and that it leaves the floor for the next player to clear. A sweep is fifty points — the biggest
+ * swing in the game — and a round of real play was lost to handing one over unknowingly.
+ */
+describe('sweeps, marked on the choice itself', () => {
+  it('flags a capture that clears the floor', () => {
+    const seven = card('7', 'hearts');
+    const state = position([seven, card('J', 'spades')], [card('7', 'clubs')]);
+    const choices = choicesForCard(discoverLegalOptions(state, 'p1', seven.id), state);
+    const collect = choices.find(c => c.verb === 'COLLECT')!;
+    expect(collect.sweeps).toBe(true);
+    expect(collect.opensSweep).toBeFalsy();
+  });
+
+  it('flags a capture that leaves exactly one thing behind for the next player', () => {
+    const seven = card('7', 'hearts');
+    // Takes the 7, leaves a lone 3 — which anyone holding a 3 then sweeps.
+    const state = position([seven, card('J', 'spades')], [card('7', 'clubs'), card('3', 'diamonds')]);
+    const collect = choicesForCard(discoverLegalOptions(state, 'p1', seven.id), state).find(c => c.verb === 'COLLECT')!;
+    expect(collect.sweeps).toBeFalsy();
+    expect(collect.opensSweep).toBe(true);
+  });
+
+  it('does not flag a capture that leaves plenty on the floor', () => {
+    const seven = card('7', 'hearts');
+    const state = position([seven, card('J', 'spades')], [card('7', 'clubs'), card('3', 'diamonds'), card('9', 'hearts')]);
+    const collect = choicesForCard(discoverLegalOptions(state, 'p1', seven.id), state).find(c => c.verb === 'COLLECT')!;
+    expect(collect.sweeps).toBeFalsy();
+    expect(collect.opensSweep).toBeFalsy();
+  });
+
+  it('counts the house a build leaves behind, so building is never read as opening a sweep', () => {
+    const two = card('2', 'hearts');
+    const state = position([two, card('J', 'spades')], [card('9', 'clubs')]);
+    const build = choicesForCard(discoverLegalOptions(state, 'p1', two.id), state).find(c => c.verb === 'BUILD HOUSE')!;
+    expect(build.opensSweep).toBe(true); // the new house is the only thing on that floor
+    const busier = position([two, card('J', 'spades')], [card('9', 'clubs'), card('4', 'spades')]);
+    const safer = choicesForCard(discoverLegalOptions(busier, 'p1', two.id), busier).find(c => c.verb === 'BUILD HOUSE')!;
+    expect(safer.opensSweep).toBeFalsy(); // house plus the 4 still on the floor
+  });
+});

@@ -5,6 +5,9 @@ import { House } from './House';
 import { Hand } from './Hand';
 import { LooseFloor } from './LooseFloor';
 import { matchTally, seatAt, seatsAround, sideLabel, sidesAreSettled, sidesInPlay, yourOwnerIds } from './table';
+import { floorIsOneCaptureFromEmpty, loosePoints } from './moveNarrative';
+import { useMoveReceipt } from './useMoveReceipt';
+import { useCardFlight } from './useCardFlight';
 import type { Seat } from './table';
 import { VISIBLE_PRE_OPENING_CARD_COUNT, safeBidValues } from './useBaaziGame';
 import { discoverLegalMoves } from '../engine/roundOrchestrator';
@@ -212,12 +215,10 @@ export interface TableProps {
   onBid: (value: number) => void;
   onOpeningAction: (action: OpeningAction) => void;
   onMove: (move: NormalPlayMove) => void;
-  roundComplete: boolean;
   lastRoundResult: RoundCompletionResult | null;
   /** What each side scored in the round just played, for the tally at the top. Survives the deal of
    * the next round, which is exactly what `lastRoundResult` does not do. */
   lastRoundScores?: Record<string, number> | null;
-  onFinishRound?: () => void;
   onNextRound?: () => void;
   /** Anything that should float over the middle of the blanket — a waiting notice, a refusal. */
   notice?: React.ReactNode;
@@ -231,6 +232,11 @@ export interface TableProps {
    * around the active nameplate. Omitted for Practice, which has no shared clock. */
   turnStartedAt?: number;
   turnLimitMs?: number;
+  /** True when the clock ran out on YOUR turn and the table played it for you. Said once, quietly,
+   * in the same line that already carries the table's asides — a card you did not choose appearing
+   * on the floor with no explanation is the thing being fixed, so this needs no more room than a
+   * sentence. Cleared by the authority as soon as you play again. */
+  playedForYou?: boolean;
 }
 
 export function TableView(props: TableProps) {
@@ -283,6 +289,32 @@ export function TableView(props: TableProps) {
   // A match is always two sides, so the gap between them is simply "the lead" — see matchTally.
   const tally = matchTally(state, sides, mySeat, props.lastRoundScores);
 
+  // What just happened, read from the change in state — the engine keeps no move log, and a player
+  // watching the floor change with no account of it is the single thing this table most lacked.
+  const receipt = useMoveReceipt(state);
+  const receiptName = receipt?.actorId
+    ? receipt.actorId === mySeat
+      ? 'You'
+      : state.players.find(p => p.id === receipt.actorId)?.name ?? ''
+    : '';
+
+  // The call is made from the hand itself: the cards worth 9 to 13 ARE the choices, so there is no
+  // row of numbers to read and match back to your cards. safeBidValues is the engine's own answer
+  // for which calls leave the caller a legal opening play.
+  const callableValues = isMyBid ? safeBidValues(game, mySeat) : [];
+  const callableCardIds = new Set(
+    isMyBid ? me.hand.filter(c => callableValues.includes(RANK_ORDER[c.rank])).map(c => c.id) : []
+  );
+
+  // A match only becomes a match once a round has been banked; until then the top line is just
+  // this round's score.
+  const matchUnderway = state.roundNumber > 1 || sides.some(side => (state.scores[side] ?? 0) > 0);
+  // The played card crossing the table to wherever it actually went — measured from its slot in the
+  // hand at the moment of the tap, and from the destination once the move has landed.
+  const { flight, landing, takeOff } = useCardFlight(receipt, state.floor.houses.map(h => h.id), mySeat);
+  const pointsLoose = loosePoints(state);
+  const floorNearlyEmpty = floorIsOneCaptureFromEmpty(state);
+
   // ---- one interaction, for the opening play and every turn after it ----------------------------
   //
   // The engine says what each card may legally do; the player chooses. A tap on a card with exactly
@@ -300,19 +332,45 @@ export function TableView(props: TableProps) {
       : {};
 
   const play = (option: LegalOption) => {
+    const flying = me.hand.find(c => c.id === option.handCardId);
+    if (flying) takeOff(flying, document.querySelector(`[data-card-id="${CSS.escape(flying.id)}"]`));
     setSelectedCardId(null);
     if (isMyOpening) props.onOpeningAction(toOpeningAction(option));
     else props.onMove(toNormalPlayMove(option));
   };
 
   const tapCard = (card: Card) => {
+    // During the call, the card IS the bid.
+    if (isMyBid) {
+      if (callableCardIds.has(card.id)) props.onBid(RANK_ORDER[card.rank]);
+      return;
+    }
     const plan = planForCard(optionsByCard[card.id], state);
-    if (plan.kind === 'direct') play(plan.choice.option);
-    else if (plan.kind === 'choose') setSelectedCardId(current => (current === card.id ? null : card.id));
+    if (plan.kind === 'direct') {
+      takeOff(card, document.querySelector(`[data-card-id="${CSS.escape(card.id)}"]`));
+      play(plan.choice.option);
+    } else if (plan.kind === 'choose') setSelectedCardId(current => (current === card.id ? null : card.id));
   };
 
   const playableIds = new Set(
-    isChoosingCard ? Object.entries(optionsByCard).filter(([, opts]) => opts.length > 0).map(([id]) => id) : []
+    isChoosingCard
+      ? Object.entries(optionsByCard).filter(([, opts]) => opts.length > 0).map(([id]) => id)
+      : isMyBid
+        ? callableCardIds
+        : []
+  );
+
+  // Cards that can take or make something, as against cards whose only legal move is to go down.
+  // The hand used to lift and brighten both the same way, so eight cards looked like eight
+  // opportunities when in truth none of them could do anything.
+  const actionableIds = new Set(
+    isChoosingCard
+      ? Object.entries(optionsByCard)
+          .filter(([, opts]) => opts.some(o => o.kind !== 'throw'))
+          .map(([id]) => id)
+      : isMyBid
+        ? callableCardIds
+        : []
   );
 
   const selectedCard = me.hand.find(c => c.id === selectedCardId) ?? null;
@@ -329,6 +387,11 @@ export function TableView(props: TableProps) {
     if (!isMyOpening || selectedCard) return null;
     const kinds = new Set(Object.values(optionsByCard).flat().map(o => o.kind));
     const call = state.bidValue;
+    // Build and capture are alternatives now (Product Owner, 2026-10-05), so the prompt must stop
+    // telling the caller that building "is the play" when their called card can take instead.
+    if (kinds.has('build') && kinds.has('capture')) {
+      return `You called ${call} — build a house of ${call}, or collect with your ${call}.`;
+    }
     if (kinds.has('build')) return `You called ${call} — a house of ${call} can be built, so that is the play.`;
     if (kinds.has('capture')) return `You called ${call} — collect with your ${call}.`;
     if (kinds.has('throw')) return `You called ${call} — put your ${call} down.`;
@@ -347,19 +410,18 @@ export function TableView(props: TableProps) {
             {sides.map(side => (
               <div key={side} className="baazi-side-score">
                 <span className="baazi-side-name">{sideLabel(state, side, mySeat)}</span>
-                <span className="baazi-side-total">{state.scores[side] ?? 0}</span>
-                {runningTally && (runningTally[side]?.total ?? 0) > 0 && (
-                  <span className="baazi-side-round">
-                    +{runningTally[side].total}
-                    {/* The breakdown is the first thing to go when the bar is narrow — what a side is
-                        up THIS round is the part worth keeping on a phone, so it gets its own span. */}
-                    {runningTally[side].sweepPoints > 0 && (
-                      <span className="baazi-side-round-detail">
-                        {' '}
-                        ({runningTally[side].cardPoints} + {runningTally[side].sweepPoints} Seep)
-                      </span>
+                {/* In a first round there is only one number worth showing — what you have taken so
+                    far. Cumulative totals arrive when a second round makes them mean something, and
+                    the card-points-versus-sweep breakdown waits for the score card at round end. */}
+                {matchUnderway ? (
+                  <>
+                    <span className="baazi-side-total">{state.scores[side] ?? 0}</span>
+                    {runningTally && (runningTally[side]?.total ?? 0) > 0 && (
+                      <span className="baazi-side-round">+{runningTally[side].total}</span>
                     )}
-                  </span>
+                  </>
+                ) : (
+                  <span className="baazi-side-total">{runningTally?.[side]?.total ?? 0}</span>
                 )}
               </div>
             ))}
@@ -408,13 +470,17 @@ export function TableView(props: TableProps) {
           {floorIsBare && <span className="baazi-floor-empty">Floor is empty</span>}
 
           {state.floor.houses.length > 0 && (
-            <div className="baazi-houses">
+            <div className="baazi-houses" data-flight="houses">
               {state.floor.houses.map(house => (
                 <House
                   key={house.id}
                   house={house}
                   yourOwnerIds={yourOwners}
                   labelForOwner={owner => sideLabel(state, owner, mySeat)}
+                  keyHeld={
+                    house.ownerSides.some(o => yourOwners.includes(o)) &&
+                    me.hand.some(c => RANK_ORDER[c.rank] === house.captureValue)
+                  }
                 />
               ))}
             </div>
@@ -424,12 +490,42 @@ export function TableView(props: TableProps) {
               own revealFloor step is exactly that transition, bidding -> revealing. Showing it
               face up during the call handed the caller four cards of information they are not
               meant to have yet. */}
-          {state.floor.loose.length > 0 && (
-            <LooseFloor cards={state.floor.loose} faceDown={state.phase === 'bidding'} />
+          <div data-flight="floor">
+            {state.floor.loose.length > 0 && (
+              <LooseFloor cards={state.floor.loose} faceDown={state.phase === 'bidding'} />
+            )}
+          </div>
+
+          {/* What the floor is worth and whether it is about to be given away. Both facts the engine
+              has always known and the table never said: a spade is worth its rank while the clubs
+              beside it are worth nothing, and a floor one capture from empty is a 50-point gift to
+              whoever plays next. */}
+          {state.phase === 'playing' && (pointsLoose > 0 || floorNearlyEmpty) && (
+            <div className="baazi-floor-state">
+              {pointsLoose > 0 && (
+                <span className="baazi-floor-points">{pointsLoose} {pointsLoose === 1 ? 'point' : 'points'} on the floor</span>
+              )}
+              {floorNearlyEmpty && <span className="baazi-floor-warning">One capture from empty — a sweep is on</span>}
+            </div>
           )}
         </div>
 
         <div className="baazi-near">
+          {/* One line for the move that just happened — whoever made it. Without this a player sees
+              the score move and the floor change with no account of either, which a whole round of
+              play showed to be the single most disorienting thing about the table. */}
+          {receipt && (
+            <div className={`baazi-receipt ${receipt.seepPoints !== undefined ? 'is-seep' : ''}`} role="status" aria-live="polite">
+              {receiptName && <span className="baazi-receipt-who">{receiptName}</span>}
+              <span className="baazi-receipt-what">{receipt.text}</span>
+              {receipt.points !== undefined && receipt.points > 0 && (
+                <span className="baazi-receipt-points">+{receipt.points}</span>
+              )}
+              {receipt.seepPoints !== undefined && (
+                <span className="baazi-receipt-seep">SWEEP{receipt.seepPoints > 0 ? ` +${receipt.seepPoints}` : ''}</span>
+              )}
+            </div>
+          )}
           <TurnBanner
             yourMove={isYourMove}
             actingName={seats.find(s => s.isTurn && !s.isYou)?.name ?? null}
@@ -437,11 +533,13 @@ export function TableView(props: TableProps) {
             // hand). Up here it was covered by the very card it named, which rises as it's picked.
             prompt={
               isMyBid
-                ? 'Choose your call'
+                ? 'Tap the card you are calling'
                 : openingPrompt ?? (isChoosingCard && !selectedCard ? 'Tap a card to play it' : null)
             }
             note={
-              myHandStillFaceDown
+              props.playedForYou
+                ? 'Time’s up — Baazi played for you.'
+                : myHandStillFaceDown
                 ? 'Cards turn over once the call has been played.'
                 : isPreOpening && me.hand.length > VISIBLE_PRE_OPENING_CARD_COUNT
                   ? `You can see your first ${VISIBLE_PRE_OPENING_CARD_COUNT} cards — the rest turn over after your opening play.`
@@ -454,7 +552,7 @@ export function TableView(props: TableProps) {
             <Hand
               cards={sortedForDisplay(isPreOpening ? me.hand.slice(0, VISIBLE_PRE_OPENING_CARD_COUNT) : me.hand)}
               selectedId={selectedCardId}
-              playableIds={playableIds}
+              liftedIds={actionableIds}
               isActive={isYourMove}
               renderCard={card => {
                 // Not yours to look at yet: the call has not been played, and you are not the caller.
@@ -465,10 +563,13 @@ export function TableView(props: TableProps) {
                     card={card}
                     selected={selectedCardId === card.id}
                     playable={playable}
+                    // Raised and bright only when the card can TAKE or MAKE something. A card whose
+                    // single legal move is to go down stays at rest: still tappable, not advertised.
+                    actionable={actionableIds.has(card.id)}
                     // Quiet only the cards that genuinely can't be played while a card is being
                     // chosen; outside your turn the whole hand rests, rather than every card
                     // looking like a mistake.
-                    dimmed={isChoosingCard && !playable}
+                    dimmed={(isChoosingCard || isMyBid) && !playable}
                     onClick={playable ? () => tapCard(card) : undefined}
                   />
                 );
@@ -486,25 +587,16 @@ export function TableView(props: TableProps) {
           {/* Identity and the turn's choices share the bottom strip, so options never push the
               table around or crowd the tops of the cards. */}
           <div className="baazi-bottom-bar">
-            <PlayerChip
-              name="You"
-              handCount={me.hand.length}
-              isTurn={isYourMove}
-              className="is-self"
-              turnStartedAt={props.turnStartedAt}
-              turnLimitMs={props.turnLimitMs}
-            />
-
-            {isMyBid && (
-              <div className="baazi-choice-row">
-                <span className="baazi-choice-label">Call</span>
-                {safeBidValues(game, mySeat).map(v => (
-                  <button key={v} className="baazi-choice-button" onClick={() => props.onBid(v)}>
-                    {v}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div data-flight={`pile:${mySeat}`}>
+              <PlayerChip
+                name="You"
+                handCount={me.hand.length}
+                isTurn={isYourMove}
+                className="is-self"
+                turnStartedAt={props.turnStartedAt}
+                turnLimitMs={props.turnLimitMs}
+              />
+            </div>
 
             {/* Only when a card has more than one legal move — a card with exactly one is simply
                 played on the tap, so there is nothing to choose. */}
@@ -514,11 +606,19 @@ export function TableView(props: TableProps) {
                 {choices.map((choice, i) => (
                   <button
                     key={i}
-                    className={`baazi-choice-button is-${choice.verb.toLowerCase().replace(/ /g, '-')}`}
+                    className={`baazi-choice-button is-${choice.verb.toLowerCase().replace(/ /g, '-')} ${
+                      choice.sweeps ? 'is-sweep' : choice.opensSweep ? 'is-risky' : ''
+                    }`}
                     onClick={() => play(choice.option)}
                   >
                     <span className="baazi-choice-verb">{choice.verb}</span>
                     {choice.detail && <span className="baazi-choice-detail">{choice.detail}</span>}
+                    {/* The two facts a player cannot see for themselves: that this clears the floor,
+                        or that it leaves the floor for the next player to clear. */}
+                    {choice.sweeps && <span className="baazi-choice-flag is-good">sweeps the floor</span>}
+                    {!choice.sweeps && choice.opensSweep && (
+                      <span className="baazi-choice-flag is-warn">leaves a sweep</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -526,26 +626,45 @@ export function TableView(props: TableProps) {
           </div>
         </div>
 
+        {/* The card in transit. Fixed to the viewport, pointer-transparent, gone when it lands. */}
+        {flight && (
+          <div
+            className={`baazi-flight ${landing ? 'is-landing' : ''}`}
+            style={{
+              left: flight.from.x,
+              top: flight.from.y,
+              width: flight.from.width,
+              height: flight.from.height,
+              transform: landing
+                ? `translate(${flight.to.x - flight.from.x}px, ${flight.to.y - flight.from.y}px) scale(0.7)`
+                : 'translate(0, 0)'
+            }}
+            aria-hidden="true"
+          >
+            <PlayingCard card={flight.card} />
+          </div>
+        )}
+
         {props.notice}
 
         {/* End-of-round business floats over the middle of the blanket rather than taking a row of
             its own, so the table underneath never rearranges itself to make space. */}
-        {props.roundComplete && !props.lastRoundResult && props.onFinishRound && (
-          <div className="baazi-interlude">
-            <p>Round complete.</p>
-            <button className="baazi-primary-button" onClick={props.onFinishRound}>
-              See the score
-            </button>
-          </div>
-        )}
-
         {props.lastRoundResult && (
           <div className="baazi-interlude">
-            <p>
-              {Object.entries(props.lastRoundResult.breakdown)
-                .map(([side, b]) => `${sideLabel(state, side, mySeat)} +${b.total}`)
-                .join('  ·  ')}
-            </p>
+            {/* The one place a breakdown belongs: play is over, and a round where a sweep was worth
+                more than every card on the table should say so rather than printing one number. */}
+            <div className="baazi-score-card">
+              {Object.entries(props.lastRoundResult.breakdown).map(([side, b]) => (
+                <div key={side} className="baazi-score-row">
+                  <span className="baazi-score-side">{sideLabel(state, side, mySeat)}</span>
+                  <span className="baazi-score-parts">
+                    {b.cardPoints} from cards
+                    {b.sweepPoints > 0 && <span className="baazi-score-sweep"> + {b.sweepPoints} swept</span>}
+                  </span>
+                  <span className="baazi-score-total">{b.total}</span>
+                </div>
+              ))}
+            </div>
             {props.lastRoundResult.gameOver ? (
               <p className="baazi-game-over-line">{gameOverLine(state, sides, mySeat)}</p>
             ) : (

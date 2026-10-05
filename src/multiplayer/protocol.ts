@@ -130,6 +130,17 @@ export interface TableEnvelope {
    * were in progress.
    */
   lastRoundScores?: Record<string, number> | null;
+  /**
+   * The seat whose turn the clock last played, when that seat belongs to a person.
+   *
+   * Written by the authority so the person it happened to can be told, and cleared the moment they
+   * play again. Without it a card they never chose simply appears on the floor and their turn is
+   * gone, which reads as the game breaking rather than as the timer doing its job. Computer seats
+   * never set it — nobody needs telling that a computer moved.
+   *
+   * Optional: tables written before this existed simply have nothing to say.
+   */
+  playedForSeat?: SeatId | null;
   /** The guest's mailbox — at most one outstanding request. */
   request: ActionRequest | null;
   /** So a request that arrives twice (retry, double-tap, reconnect) is applied once. */
@@ -225,6 +236,7 @@ export function createEnvelope(
     game: null,
     lastResult: null,
     lastRoundScores: null,
+    playedForSeat: null,
     request: null,
     lastAppliedRequestId: null,
     lastRejection: null

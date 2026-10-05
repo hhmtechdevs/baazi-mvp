@@ -99,8 +99,10 @@ describe('sweeps', () => {
     expect(sweepPoints({ ...base, isOpeningPlay: false, isFinalPlay: false })).toBe(50);
   });
 
-  it('opening sweep = 25', () => {
-    expect(sweepPoints({ ...base, isOpeningPlay: true, isFinalPlay: false })).toBe(25);
+  // Product Owner, 2026-10-05: Baazi pays a full 50 for an opening sweep. Pagat's 25-point
+  // exception does not apply here, and this test used to assert it.
+  it('opening sweep = 50, like any other', () => {
+    expect(sweepPoints({ ...base, isOpeningPlay: true, isFinalPlay: false })).toBe(50);
   });
 
   it('final-play sweep = 0', () => {

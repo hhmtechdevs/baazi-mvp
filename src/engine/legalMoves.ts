@@ -650,13 +650,28 @@ function discoverNormalOptionsForCard(
 }
 
 // ---------------------------------------------------------------------------
-// OPENING discovery: strict Build > Capture > Throw priority (Baazi-frozen
-// rule), locked to the single announced bid value. This is a whole-hand
-// determination — whether build is mandated depends on the ENTIRE hand and
-// floor, not just the one card being queried — so this always computes
-// across every hand card first, then reports each card's slice of it.
+// OPENING discovery, locked to the single announced bid value.
 //
-// UNCHANGED by the Combine/Cement architecture: the opening floor never has houses on it, so
+// The caller's first play is one of three things, all tied to the value they called: build a house
+// of it, play the called card to capture with it, or put the called card down. Build and capture
+// are ALTERNATIVES — the caller chooses — and throwing is the fallback when neither is possible.
+//
+// PRODUCT OWNER CORRECTION, 2026-10-05 (frozen rule changed, deliberately and on the record).
+// This used to be a strict Build > Capture > Throw priority: the moment ANY card in hand could
+// build the called value, capture became illegal for every card, the called card included. That
+// cost a real position in live play — called 13 with Q, A, 7, 6 on the floor and a King in hand,
+// where the King takes Q+A and 7+6 together, clears the floor and sweeps for 25. The King was
+// offered nothing at all, because some other card in hand could have built a 13. Pagat's own
+// description of the first play is the three alternatives above, and it names the first-play sweep
+// explicitly, so suppressing the capture was wrong.
+//
+// What did NOT change: the bid-value lock (only a card of the called value may capture or be
+// thrown), throwing as a last resort (a caller who can build or capture may not simply put the
+// card down), ordinary-turn capture, and scoring — a first-play sweep is already worth 25 rather
+// than 50 (see sweepPoints, and finalizeOpeningAndAdvance which marks it as the opening play).
+//
+// This remains a whole-hand determination, computed across every card first and then reported per
+// card. UNCHANGED by the Combine/Cement architecture: the opening floor never has houses on it, so
 // house-awareness is structurally irrelevant here. `resultingOwnerSides` on the Build options it
 // produces is overwritten below to the bidder's own id (discoverBuildOptionsForValue's
 // placeholder exists purely so its return type matches the shared LegalBuildOption shape).
@@ -667,7 +682,7 @@ function discoverOpeningOptionsForHand(state: GameState, bidderId: string, hand:
   const byCard: Record<string, LegalOption[]> = {};
   for (const card of hand) byCard[card.id] = [];
 
-  // Tier 1: build, at exactly the bid value, across every hand card.
+  // Building a house of the called value, from any card in hand.
   let anyBuild = false;
   for (const card of hand) {
     const builds = discoverBuildOptionsForValue(hand, state.floor.loose, card, bidValue, bidderId);
@@ -676,9 +691,8 @@ function discoverOpeningOptionsForHand(state: GameState, bidderId: string, hand:
       anyBuild = true;
     }
   }
-  if (anyBuild) return byCard; // Build Priority: capture and throw are not legal for anyone
 
-  // Tier 2: capture, only for the card(s) whose rank equals the bid value.
+  // Capturing with the called card itself — offered alongside any build, not behind it.
   let anyCapture = false;
   const bidValueCards = hand.filter(c => rankValue(c.rank) === bidValue);
   for (const card of bidValueCards) {
@@ -688,9 +702,9 @@ function discoverOpeningOptionsForHand(state: GameState, bidderId: string, hand:
       anyCapture = true;
     }
   }
-  if (anyCapture) return byCard; // capture takes priority over throw once build is unavailable
+  if (anyBuild || anyCapture) return byCard;
 
-  // Tier 3: throw, only for the bid-value card(s), only once neither build nor capture exists.
+  // Throwing the called card: the fallback, and only when there is nothing to build or capture.
   for (const card of bidValueCards) {
     byCard[card.id].push({ kind: 'throw', handCardId: card.id });
   }

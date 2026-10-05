@@ -363,6 +363,61 @@ describe('a two-handed table', () => {
   });
 });
 
+/**
+ * Being told the clock played for you.
+ *
+ * The behaviour itself is deliberate and stays exactly as it was; what was missing is that the
+ * person it happened to had no way to know. A card they never chose appeared on the floor and their
+ * turn was gone, which reads as the game breaking rather than the timer working.
+ */
+describe('when the clock plays a person’s turn', () => {
+  it('records whose turn it took, so that person can be told', () => {
+    const table = runUntilHumanTurn(startTable(seated()));
+    const seat = expectedActor(table)!;
+    expect(seatRecord(table, seat)!.kind).toBe('human');
+    expect(table.playedForSeat ?? null).toBeNull();
+
+    const step = nextHostStep(table, table.turnStartedAt + HUMAN_TURN_MS)!;
+    expect(step.kind).toBe('play');
+    expect(step.envelope.playedForSeat).toBe(seat);
+  });
+
+  it('says nothing when a computer seat is played on time', () => {
+    let table = startTable(seated());
+    let now = table.turnStartedAt;
+    for (let i = 0; i < 40; i++) {
+      const actor = expectedActor(table);
+      if (!actor) break;
+      if (seatRecord(table, actor)!.kind === 'human') break; // stop before a person's turn is taken
+      now += AI_TURN_MS;
+      const step = nextHostStep(table, now);
+      if (!step) break;
+      table = step.envelope;
+      expect(table.playedForSeat ?? null).toBeNull();
+    }
+  });
+
+  it('stops saying it once they play again', () => {
+    // That seat is to move, and is carrying the note from a turn the clock took earlier.
+    const table = runUntilHumanTurn(startTable(seated()));
+    const seat = expectedActor(table)!;
+    const carrying: TableEnvelope = { ...table, playedForSeat: seat };
+
+    const [, options] = Object.entries(discoverLegalMoves(carrying.game!, seat)).find(([, o]) => o.length > 0)!;
+    const played = applyRequest(carrying, {
+      id: 'r-own',
+      sessionId: sessionFor(seat),
+      seat,
+      forGameRevision: carrying.gameRevision,
+      kind: 'move',
+      payload: toNormalPlayMove(options[0])
+    });
+
+    expect(played.applied).toBe(true);
+    expect(played.envelope.playedForSeat).toBeNull();
+  });
+});
+
 // A person gets ten seconds and then the authority plays for them. This is a deliberate,
 // Product-Owner-approved change to how a turn can end, so it is pinned precisely: not a moment
 // early, through the same engine, and marked as having been played on someone's behalf.
