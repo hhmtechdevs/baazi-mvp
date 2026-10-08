@@ -29,16 +29,32 @@ const LETTER_RANKS: ReadonlySet<Card['rank']> = new Set(['A', 'J', 'Q', 'K']);
  *
  * Totals on the other side of the `=` stay numeric regardless: a house is a value, not a card.
  */
-function cardTerm(card: Card, withSuit: boolean): string {
+/**
+ * A CARD always carries its suit; a VALUE never does (see valueTerm). That is the whole rule, and
+ * it exists because they used to be indistinguishable: a build absorbing the ten of diamonds read
+ * "= 10 (+10)", with the house's value and a card four characters apart in the same notation, and
+ * a Jack swept in alongside read as a Jack you were building with. Suits were previously added
+ * only when two choices would otherwise collide, which solved a narrower problem than this one.
+ */
+function cardTerm(card: Card, _withSuit: boolean): string {
   const suit = SUIT_SYMBOL[card.suit];
   if (LETTER_RANKS.has(card.rank)) return `${card.rank}${suit}`;
-  return withSuit ? `${RANK_VALUE[card.rank]}${suit}` : String(RANK_VALUE[card.rank]);
+  return `${RANK_VALUE[card.rank]}${suit}`;
+}
+
+/**
+ * What a house is worth, named the way it is named at the table: an 11-house is a Jack house. No
+ * suit, because a value does not have one — which is exactly what tells it apart from a card.
+ */
+const VALUE_NAME: Record<number, string> = { 11: 'J', 12: 'Q', 13: 'K' };
+function valueTerm(value: number): string {
+  return VALUE_NAME[value] ?? String(value);
 }
 
 /** Houses are bracketed so an existing house on the floor never reads as a loose card: `[11]`. */
 function houseTerm(state: GameState, houseId: string): string {
   const house = state.floor.houses.find(h => h.id === houseId);
-  return house ? `[${house.captureValue}]` : '[?]';
+  return house ? `[${valueTerm(house.captureValue)}]` : '[?]';
 }
 
 /**
@@ -78,7 +94,7 @@ export function describeLegalOption(option: LegalOption, state: GameState, withS
     case 'build':
       return equation(
         [card(option.handCardId), ...option.floorCardIds.map(card)],
-        String(option.resultingValue),
+        valueTerm(option.resultingValue),
         option.absorbedLooseCardIds.map(card)
       );
     case 'cement':
@@ -95,10 +111,10 @@ export function describeLegalOption(option: LegalOption, state: GameState, withS
       // the heading BUILD HOUSE could not tell that the 10 was a house being taken off somebody.
       const sum = equation(
         [house(option.existingHouseId), card(option.handCardId)],
-        String(option.resultingValue),
+        valueTerm(option.resultingValue),
         option.absorbedLooseCardIds.map(card)
       );
-      return `break ${house(option.existingHouseId)} to build ${option.resultingValue} · ${sum}`;
+      return `break ${house(option.existingHouseId)} to build ${valueTerm(option.resultingValue)} · ${sum}`;
     }
     case 'mergeFix': {
       // Raises an existing house into another already sitting at the new value — same breakage,

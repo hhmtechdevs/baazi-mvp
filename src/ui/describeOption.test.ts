@@ -48,7 +48,7 @@ describe('move labels read as equations, not prose', () => {
       absorbedLooseCardIds: [],
       resultingOwnerSides: ['p1']
     };
-    expect(describeLegalOption(option, state)).toBe('(5 + 6) = 11');
+    expect(describeLegalOption(option, state)).toBe('(5♥ + 6♣) = J');
   });
 
   it('adds up every card that actually combines to reach the value', () => {
@@ -64,7 +64,7 @@ describe('move labels read as equations, not prose', () => {
       absorbedLooseCardIds: [],
       resultingOwnerSides: ['p1']
     };
-    expect(describeLegalOption(option, state)).toBe('(3 + 3 + 5) = 11');
+    expect(describeLegalOption(option, state)).toBe('(3♥ + 3♣ + 5♠) = J');
   });
 
   it('aces and court cards keep their letter and suit; the total stays a number', () => {
@@ -77,7 +77,7 @@ describe('move labels read as equations, not prose', () => {
       absorbedLooseCardIds: [],
       resultingOwnerSides: ['p1']
     };
-    expect(describeLegalOption(option, state)).toBe('(A♠ + 10) = 11');
+    expect(describeLegalOption(option, state)).toBe('(A♠ + 10♥) = J');
   });
 
   it('a build needing no floor cards still names the card being played', () => {
@@ -90,7 +90,7 @@ describe('move labels read as equations, not prose', () => {
       absorbedLooseCardIds: [],
       resultingOwnerSides: ['p1']
     };
-    expect(describeLegalOption(option, state)).toBe('Q♠ = 12');
+    expect(describeLegalOption(option, state)).toBe('Q♠ = Q');
   });
 
   it('shows swept-in groups apart from the sum, since they are not addends of it', () => {
@@ -112,7 +112,7 @@ describe('move labels read as equations, not prose', () => {
       absorbedLooseCardIds: ['4-clubs', '7-clubs'],
       resultingOwnerSides: ['p1']
     };
-    expect(describeLegalOption(option, state)).toBe('J♣ = [11] (+4 +7)');
+    expect(describeLegalOption(option, state)).toBe('J♣ = [J] (+4♣ +7♣)');
   });
 
   it('landing on an existing house names that house in brackets on the result side', () => {
@@ -128,7 +128,7 @@ describe('move labels read as equations, not prose', () => {
       keySatisfiedBy: 'self',
       resultingOwnerSides: ['p1']
     };
-    expect(describeLegalOption(cement, state)).toBe('(5 + 6) = [11]');
+    expect(describeLegalOption(cement, state)).toBe('(5♥ + 6♣) = [J]');
   });
 
   it('raising an existing house says it breaks that house, and still shows the sum', () => {
@@ -142,7 +142,7 @@ describe('move labels read as equations, not prose', () => {
       absorbedLooseCardIds: [],
       resultingOwnerSides: ['p1']
     };
-    expect(describeLegalOption(option, state)).toBe('break [9] to build 11 · ([9] + 2) = 11');
+    expect(describeLegalOption(option, state)).toBe('break [9] to build J · ([9] + 2♥) = J');
   });
 
   it('captures keep a verb, since the same cards could equally be built into a house', () => {
@@ -157,7 +157,7 @@ describe('move labels read as equations, not prose', () => {
       value: 11,
       isSeep: false
     };
-    expect(describeLegalOption(option, state)).toBe('Take 5 + 6');
+    expect(describeLegalOption(option, state)).toBe('Take 5♥ + 6♠');
   });
 
   it('capturing a house names it in brackets, and a Seep is flagged', () => {
@@ -170,7 +170,7 @@ describe('move labels read as equations, not prose', () => {
       value: 11,
       isSeep: true
     };
-    expect(describeLegalOption(option, state)).toBe('Take [11] · Seep');
+    expect(describeLegalOption(option, state)).toBe('Take [J] · Seep');
   });
 });
 
@@ -181,7 +181,7 @@ describe('suits come back only where two options would otherwise read the same',
       { kind: 'capture', handCardId: 'J-clubs', targets: [{ type: 'loose', cardId: '5-hearts' }], value: 5, isSeep: false },
       { kind: 'throw', handCardId: 'J-clubs' }
     ];
-    expect(labelLegalOptions(options, state)).toEqual(['Take 5', 'Throw']);
+    expect(labelLegalOptions(options, state)).toEqual(['Take 5♥', 'Throw']);
   });
 
   it('court cards are already distinct, since their suit is always shown', () => {
@@ -194,7 +194,7 @@ describe('suits come back only where two options would otherwise read the same',
       absorbedLooseCardIds: [],
       resultingOwnerSides: ['p1']
     });
-    expect(labelLegalOptions([build('Q-clubs'), build('Q-hearts')], state)).toEqual(['Q♣ = 12', 'Q♥ = 12']);
+    expect(labelLegalOptions([build('Q-clubs'), build('Q-hearts')], state)).toEqual(['Q♣ = Q', 'Q♥ = Q']);
   });
 
   it('still falls back to suits for two same-valued NUMBER cards, which carry no suit by default', () => {

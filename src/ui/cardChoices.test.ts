@@ -148,7 +148,7 @@ describe('a house is only ever built on purpose', () => {
     expect(build).toBeDefined();
     expect(build!.detail).toMatch(/2/);
     expect(build!.detail).toMatch(/9/);
-    expect(build!.detail).toMatch(/11/);
+    expect(build!.detail).toMatch(/J/);
   });
 });
 
