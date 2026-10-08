@@ -21,6 +21,17 @@ body {
   color: var(--baazi-cream);
 }
 
+/* The table is exactly one screen — never more, never scrolling. 100dvh rather than 100vh because
+   on iOS the browser chrome shrinks and grows and 100vh is the TALL value, which pushes the hand
+   under the address bar. The front-door screens keep min-height instead, so a long card can still
+   scroll there. */
+.baazi-app.baazi-blanket {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .baazi-app {
   min-height: 100vh;
   /* 100dvh where supported: on iOS the browser chrome shrinks and grows, and 100vh is the TALL
@@ -90,6 +101,43 @@ body {
   margin: 0 0 28px;
   color: #5a6b62;
   font-size: 14px;
+}
+
+/* How strong an opponent. One row, three words, no panel — the whole control is the answer to a
+   question the player already has, and the line underneath says what the choice means in plain
+   language instead of listing what was switched off. */
+.baazi-difficulty {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #f1ece0;
+}
+.baazi-difficulty button {
+  flex: 1;
+  padding: 9px 0;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: #5a6b62;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.baazi-difficulty button:hover:not(.is-chosen) {
+  color: var(--baazi-ink);
+}
+.baazi-difficulty button.is-chosen {
+  background: #fff;
+  color: var(--baazi-ink);
+  box-shadow: 0 1px 2px rgba(23, 36, 31, 0.12);
+}
+.baazi-difficulty-note {
+  margin: 0 0 26px;
+  color: #5a6b62;
+  font-size: 13px;
 }
 
 /* Who you're playing, then how the game ends. Stacked and roomy, so each reads as a decision
@@ -518,11 +566,15 @@ body {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   grid-template-areas:
     'north  north  north'
+    'info   info   info'
     'west   centre east'
     'near   near   near';
+  /* The blanket row is the only one that flexes; everything else is sized by its content. Without
+     this the grid takes its height from the content and the page scrolls. */
+  min-height: 0;
   align-items: center;
   justify-items: center;
   column-gap: 6px;
@@ -547,9 +599,22 @@ body {
   grid-area: east;
 }
 
+/* What the other side just did, and whose move it is — see the note in TableView. Sits in the
+   opponent's half, which was otherwise empty blanket. */
+.baazi-table-info {
+  grid-area: info;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 0;
+}
+
 .baazi-centre {
   grid-area: centre;
   width: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -564,6 +629,7 @@ body {
 .baazi-near {
   grid-area: near;
   width: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1225,6 +1291,25 @@ body {
   color: var(--baazi-accent);
 }
 
+/* The other option, once a side is a hundred up. Underlined text rather than a second button:
+   dealing on is still the ordinary thing to do, and two buttons of equal weight would make the
+   player choose where there is really only an offer. */
+.baazi-restart-link {
+  border: none;
+  background: none;
+  padding: 4px 2px;
+  font-family: inherit;
+  font-size: 13px;
+  color: rgba(250, 247, 240, 0.72);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+.baazi-restart-link:hover {
+  color: rgba(250, 247, 240, 0.98);
+}
+
 /* --- the cards themselves --- */
 
 .baazi-card {
@@ -1691,5 +1776,174 @@ body {
 
   .baazi-landed {
     animation: none;
+  }
+}
+
+/* --- rewind: hidden until Alt+R, or ?rewind in the address bar --- */
+/* A tool, not part of the game, so it sits across the bottom as a separate object rather than
+   pretending to belong to the table. */
+.baazi-rewind {
+  position: fixed;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 20px);
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 7px 10px;
+  border-radius: 12px;
+  background: rgba(14, 24, 20, 0.93);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  color: rgba(250, 247, 240, 0.92);
+  font-size: 12px;
+}
+.baazi-rewind button {
+  border: 1px solid rgba(250, 247, 240, 0.22);
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.baazi-rewind button:hover:not(:disabled) {
+  border-color: rgba(250, 247, 240, 0.5);
+  background: rgba(250, 247, 240, 0.08);
+}
+.baazi-rewind button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.baazi-rewind-where {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  min-width: 150px;
+  text-align: center;
+}
+.baazi-rewind-label {
+  font-weight: 600;
+}
+.baazi-rewind-count {
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+.baazi-rewind-close {
+  opacity: 0.6;
+}
+.baazi-rewind-said {
+  color: var(--baazi-accent);
+}
+
+/* Button wording has a long form and a short one; only one is ever shown. A phone gets "Copy",
+   a laptop gets "Copy position". */
+.baazi-rewind .baazi-tight { display: none; }
+
+/* On a phone the bottom of the screen is your hand — the one thing you have to be able to tap —
+   so the strip moves to the top, where it covers blanket rather than cards, and tightens into a
+   single row. Alt+R does not exist on a phone either, which is what `?rewind` is for. */
+@media (max-width: 560px) {
+  .baazi-rewind {
+    top: 34px;
+    bottom: auto;
+    left: 6px;
+    right: 6px;
+    transform: none;
+    max-width: none;
+    gap: 5px;
+    padding: 5px 7px;
+    font-size: 11px;
+  }
+  .baazi-rewind button {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+  /* Kept stacked, which is narrower than one long line and lets the buttons sit beside it on a
+     single row — the whole strip is then about as tall as the header above it. */
+  .baazi-rewind-where {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+  .baazi-rewind-label,
+  .baazi-rewind-count {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .baazi-rewind .baazi-roomy { display: none; }
+  .baazi-rewind .baazi-tight { display: inline; }
+}
+
+/* The report, on screen, for a browser that will not hand over the clipboard — a phone on the
+   local network over plain http, which is precisely where the bugs are being found. */
+.baazi-rewind-fallback {
+  position: fixed;
+  inset: 8px;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(10, 18, 15, 0.98);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.baazi-rewind-fallback p {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(250, 247, 240, 0.8);
+}
+.baazi-rewind-fallback textarea {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  border: 1px solid rgba(250, 247, 240, 0.2);
+  border-radius: 8px;
+  background: rgba(250, 247, 240, 0.04);
+  color: rgba(250, 247, 240, 0.9);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  padding: 8px;
+}
+.baazi-rewind-fallback button {
+  align-self: flex-end;
+}
+
+/* The way back to the strip after closing it. Small, dim, and in the corner — present only once
+   rewind has actually been used, so an ordinary game never shows it. */
+.baazi-rewind-handle {
+  position: fixed;
+  right: 10px;
+  bottom: 10px;
+  z-index: 60;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(250, 247, 240, 0.22);
+  background: rgba(14, 24, 20, 0.8);
+  color: rgba(250, 247, 240, 0.75);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: opacity 150ms ease, border-color 150ms ease;
+  opacity: 0.55;
+}
+.baazi-rewind-handle:hover {
+  opacity: 1;
+  border-color: rgba(250, 247, 240, 0.5);
+}
+@media (max-width: 560px) {
+  /* Away from the hand, matching the strip's own move to the top on a phone. */
+  .baazi-rewind-handle {
+    top: 38px;
+    bottom: auto;
+    right: 8px;
   }
 }

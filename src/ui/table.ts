@@ -181,3 +181,36 @@ export function matchTally(
 
   return { lead, lastRound };
 }
+
+// ---------------------------------------------------------------------------
+// Calling it a night early.
+// ---------------------------------------------------------------------------
+
+/**
+ * The lead at which a household calls the match and deals a fresh one.
+ *
+ * The same hundred the "100 Points" game length already ends on — which is not a coincidence, it
+ * is the same convention written down twice: two seeps in a row settle a game, and nobody plays
+ * out the remaining rounds of a match that is already decided. The engine's own frozen rule
+ * (isGameOver, scoring.ts) is what ENDS a 100-point game; this is purely about offering the choice
+ * during a fixed-rounds match, where the engine will quite correctly keep dealing.
+ */
+export const HOUSEHOLD_RESTART_LEAD = 100;
+
+/** The gap between the two sides, however the match is configured. Always positive. */
+export function leadMargin(state: GameState, sides: string[]): number {
+  if (sides.length < 2) return 0;
+  const [ours, theirs] = sides.map(side => state.scores[side] ?? 0);
+  return Math.abs(ours - theirs);
+}
+
+/**
+ * Whether the table should offer a fresh game — when one side is a hundred up or a hundred down.
+ *
+ * Deliberately a question about the CUMULATIVE scores only, so a caller that asks it at the end of
+ * a completed round is asking it at exactly the moment the frozen 100-point rule is evaluated, and
+ * never mid-round.
+ */
+export function leadSettlesTheMatch(state: GameState, sides: string[]): boolean {
+  return leadMargin(state, sides) >= HOUSEHOLD_RESTART_LEAD;
+}

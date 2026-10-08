@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { TableView } from './TableView';
 import { HUMAN_ID, OPPONENT_NAME, useBaaziGame } from './useBaaziGame';
+import { DIFFICULTIES, DIFFICULTY_BLURB, DIFFICULTY_LABEL } from '../botStrategy';
+import { leadSettlesTheMatch, sidesInPlay } from './table';
+import { RewindBar, RewindHandle, useRewindVisible } from './RewindBar';
+import { moveInto, rememberShared } from './rewind';
+import type { SharedSnapshot } from './rewind';
+import type { Difficulty } from '../botStrategy';
 import { useMultiplayerTable } from './useMultiplayerTable';
 import type { MultiplayerTable } from './useMultiplayerTable';
 import { expectedActor, seatRecord, turnLimitMs } from '../multiplayer/protocol';
@@ -12,7 +18,7 @@ type Route =
   | { at: 'home' }
   | { at: 'practice-length' }
   | { at: 'family' }
-  | { at: 'practice'; config: GameLengthConfig }
+  | { at: 'practice'; config: GameLengthConfig; difficulty: Difficulty }
   | { at: 'shared' };
 
 /**
@@ -41,13 +47,18 @@ export default function App() {
     return <SharedGame table={shared} onLeave={() => { shared.leave(); setRoute({ at: 'home' }); }} />;
   }
   if (route.at === 'practice') {
-    return <PracticeGame config={route.config} onLeave={() => setRoute({ at: 'home' })} />;
+    return <PracticeGame config={route.config} difficulty={route.difficulty} onLeave={() => setRoute({ at: 'home' })} />;
   }
   if (route.at === 'family') {
     return <FamilyDoor table={shared} onBack={() => setRoute({ at: 'home' })} />;
   }
   if (route.at === 'practice-length') {
-    return <PracticeLength onBack={() => setRoute({ at: 'home' })} onStart={config => setRoute({ at: 'practice', config })} />;
+    return (
+      <PracticeLength
+        onBack={() => setRoute({ at: 'home' })}
+        onStart={(config, difficulty) => setRoute({ at: 'practice', config, difficulty })}
+      />
+    );
   }
 
   return (
@@ -76,9 +87,23 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PracticeLength({ onBack, onStart }: { onBack: () => void; onStart: (config: GameLengthConfig) => void }) {
+/**
+ * The Practice door: how strong an opponent, and how long a game.
+ *
+ * The strength sits above the length as one row of three words, because it is the question a new
+ * player actually has — Baazigar at full strength counts cards, and meeting that first is not
+ * learning Seep, it is being beaten by it. Medium is the game as it has always played.
+ */
+function PracticeLength({
+  onBack,
+  onStart
+}: {
+  onBack: () => void;
+  onStart: (config: GameLengthConfig, difficulty: Difficulty) => void;
+}) {
   const [pickingRounds, setPickingRounds] = useState(false);
   const [rounds, setRounds] = useState(1);
+  const [difficulty, setDifficulty] = useState<Difficulty>('medium');
 
   return (
     <Shell>
@@ -86,9 +111,22 @@ function PracticeLength({ onBack, onStart }: { onBack: () => void; onStart: (con
         ← Practice
       </button>
       <h1>How do you want to play?</h1>
+      <div className="baazi-difficulty" role="group" aria-label={`How well ${OPPONENT_NAME} plays`}>
+        {DIFFICULTIES.map(level => (
+          <button
+            key={level}
+            className={level === difficulty ? 'is-chosen' : undefined}
+            aria-pressed={level === difficulty}
+            onClick={() => setDifficulty(level)}
+          >
+            {DIFFICULTY_LABEL[level]}
+          </button>
+        ))}
+      </div>
+      <p className="baazi-difficulty-note">{DIFFICULTY_BLURB[difficulty]}</p>
       {!pickingRounds ? (
         <div className="baazi-seat-choice">
-          <button onClick={() => onStart({ type: 'leadTarget', points: 100 })}>
+          <button onClick={() => onStart({ type: 'leadTarget', points: 100 }, difficulty)}>
             <span className="baazi-seat-name">100 Points</span>
             <span className="baazi-seat-detail">Play until someone leads by 100, counted after a completed round.</span>
           </button>
@@ -109,7 +147,7 @@ function PracticeLength({ onBack, onStart }: { onBack: () => void; onStart: (con
               onChange={e => setRounds(Math.max(1, Number(e.target.value) || 1))}
             />
           </label>
-          <button className="baazi-primary-button" onClick={() => onStart({ type: 'fixedRounds', rounds })}>
+          <button className="baazi-primary-button" onClick={() => onStart({ type: 'fixedRounds', rounds }, difficulty)}>
             Start game
           </button>
         </>
@@ -218,12 +256,22 @@ function FamilyDoor({ table, onBack }: { table: MultiplayerTable; onBack: () => 
   );
 }
 
-function PracticeGame({ config, onLeave }: { config: GameLengthConfig; onLeave: () => void }) {
+function PracticeGame({
+  config,
+  difficulty,
+  onLeave
+}: {
+  config: GameLengthConfig;
+  difficulty: Difficulty;
+  onLeave: () => void;
+}) {
   const g = useBaaziGame();
   const { startNewGame, finishRound, isRoundComplete, lastRoundResult } = g;
+  const rewind = useRewindVisible();
 
   useEffect(() => {
-    startNewGame(config, 'practice');
+    // A rewind session is here to study openings, so it deals you the call every time.
+    startNewGame(config, 'practice', difficulty, rewind.visible);
     // Deliberately once, on entering this route — re-dealing on every render would be a new game
     // every frame.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -236,21 +284,54 @@ function PracticeGame({ config, onLeave }: { config: GameLengthConfig; onLeave: 
     if (isRoundComplete && !lastRoundResult) finishRound();
   }, [isRoundComplete, lastRoundResult, finishRound]);
 
-  if (!g.game) return null;
+  if (!g.game || !g.viewedGame) return null;
+
+  // Whether to offer a fresh deal. The household rule: once a side is a hundred up — two seeps in
+  // a row will do it — the match is settled and nobody plays out the rest. A 100-point game ends
+  // itself there (the engine's own frozen rule), so this is what matters during a fixed-rounds
+  // match, where the engine will quite correctly keep dealing. Read only at the end of a completed
+  // round, which is the only moment that lead is ever evaluated.
+  const settled =
+    !!g.lastRoundResult &&
+    (g.lastRoundResult.gameOver || leadSettlesTheMatch(g.game.state, sidesInPlay(g.game.state, HUMAN_ID)));
 
   return (
-    <TableView
-      game={g.game}
-      mySeat={HUMAN_ID}
-      thinkingPlayerId={g.thinkingPlayerId}
-      canAct
-      onBid={g.submitHumanBid}
-      onOpeningAction={g.submitHumanOpeningAction}
-      onMove={g.submitHumanMove}
-      lastRoundResult={g.lastRoundResult}
-      lastRoundScores={g.lastRoundScores}
-      onNextRound={g.lastRoundResult?.gameOver ? onLeave : g.startNextRoundClicked}
-    />
+    <>
+      <TableView
+        // While reviewing, the table renders the remembered position rather than the live one —
+        // and nothing can be played from it, because it is a position that already happened.
+        game={g.viewedGame}
+        mySeat={HUMAN_ID}
+        thinkingPlayerId={g.isReviewing ? null : g.thinkingPlayerId}
+        canAct={!g.isReviewing}
+        onBid={g.submitHumanBid}
+        onOpeningAction={g.submitHumanOpeningAction}
+        onMove={g.submitHumanMove}
+        lastRoundResult={g.isReviewing ? null : g.lastRoundResult}
+        receipt={g.isReviewing ? moveInto(g.history, g.reviewIndex ?? 0) : undefined}
+        lastRoundScores={g.lastRoundScores}
+        onNextRound={g.lastRoundResult?.gameOver ? undefined : g.startNextRoundClicked}
+        onRestart={settled ? () => g.restartGame() : undefined}
+        onLeave={onLeave}
+      />
+      {!rewind.visible && rewind.everOpened && <RewindHandle onOpen={rewind.show} />}
+      {rewind.visible && (
+        <RewindBar
+          history={g.history}
+          index={g.reviewIndex ?? Math.max(0, g.history.length - 1)}
+          isReviewing={g.isReviewing}
+          onStepBack={g.stepBack}
+          onStepForward={g.stepForward}
+          onResumeHere={g.resumeHere}
+          onLive={g.leaveReview}
+          onDealAgain={() => g.restartGame({ youCall: true })}
+          onClose={() => {
+            g.leaveReview();
+            rewind.hide();
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -264,6 +345,16 @@ function PracticeGame({ config, onLeave }: { config: GameLengthConfig; onLeave: 
  */
 function SharedGame({ table, onLeave }: { table: MultiplayerTable; onLeave: () => void }) {
   const envelope = table.envelope;
+  const rewind = useRewindVisible();
+
+  // The positions this table has been in. Family is where the four-handed game actually gets
+  // played, so it is where the awkward positions turn up — the tool belongs here too, in its
+  // review-only form.
+  const [history, setHistory] = useState<SharedSnapshot[]>([]);
+  const [reviewIndex, setReviewIndex] = useState<number | null>(null);
+  useEffect(() => {
+    setHistory(h => rememberShared(h, envelope?.revision, envelope?.game));
+  }, [envelope?.revision, envelope?.game]);
 
   if (!envelope) {
     return (
@@ -281,13 +372,19 @@ function SharedGame({ table, onLeave }: { table: MultiplayerTable; onLeave: () =
 
   const actor = expectedActor(envelope);
   const thinking = actor && seatRecord(envelope, actor)?.kind === 'ai' ? actor : null;
+  const games = history.map(h => h.game);
+  const reviewing = reviewIndex !== null;
+  const viewed = reviewing ? (games[reviewIndex] ?? envelope.game) : envelope.game;
+  const step = (to: number | null) => setReviewIndex(to === null ? null : Math.max(0, Math.min(games.length - 1, to)));
 
   return (
+    <>
     <TableView
-      game={envelope.game}
+      game={viewed}
       mySeat={table.mySeat ?? HUMAN_ID}
-      thinkingPlayerId={thinking}
-      canAct={table.isMyTurn}
+      thinkingPlayerId={reviewing ? null : thinking}
+      canAct={table.isMyTurn && !reviewing}
+      receipt={reviewing ? moveInto(games, reviewIndex ?? 0) : undefined}
       onBid={table.submitBid}
       onOpeningAction={table.submitOpeningAction}
       onMove={table.submitMove}
@@ -307,6 +404,25 @@ function SharedGame({ table, onLeave }: { table: MultiplayerTable; onLeave: () =
         ) : undefined
       }
     />
+    {!rewind.visible && rewind.everOpened && <RewindHandle onOpen={rewind.show} />}
+    {rewind.visible && games.length > 0 && (
+      <RewindBar
+        history={games}
+        index={reviewIndex ?? games.length - 1}
+        isReviewing={reviewing}
+        onStepBack={() => step((reviewIndex ?? games.length - 1) - 1)}
+        onStepForward={() => {
+          const next = (reviewIndex ?? games.length - 1) + 1;
+          step(next >= games.length - 1 ? null : next);
+        }}
+        onLive={() => step(null)}
+        onClose={() => {
+          step(null);
+          rewind.hide();
+        }}
+      />
+    )}
+    </>
   );
 }
 

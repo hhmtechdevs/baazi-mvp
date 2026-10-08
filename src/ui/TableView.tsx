@@ -7,6 +7,7 @@ import { LooseFloor } from './LooseFloor';
 import { matchTally, seatAt, seatsAround, sideLabel, sidesAreSettled, sidesInPlay, yourOwnerIds } from './table';
 import { floorIsOneCaptureFromEmpty, loosePoints } from './moveNarrative';
 import { useMoveReceipt } from './useMoveReceipt';
+import type { MoveReceipt } from './moveNarrative';
 import { useCardFlight } from './useCardFlight';
 import type { Seat } from './table';
 import { VISIBLE_PRE_OPENING_CARD_COUNT, safeBidValues } from './useBaaziGame';
@@ -220,6 +221,11 @@ export interface TableProps {
    * the next round, which is exactly what `lastRoundResult` does not do. */
   lastRoundScores?: Record<string, number> | null;
   onNextRound?: () => void;
+  /** Deal a brand-new match. Offered when a side is a hundred ahead, and when the game is over —
+   * see leadSettlesTheMatch. Absent on tables where starting over isn't one person's call. */
+  onRestart?: () => void;
+  /** Overrides the running move receipt — see the rewind strip. Explicit null shows none. */
+  receipt?: MoveReceipt | null;
   /** Anything that should float over the middle of the blanket — a waiting notice, a refusal. */
   notice?: React.ReactNode;
   /** Shown on a shared table so you can get up from it. Absent for Practice, which has no table to
@@ -291,7 +297,10 @@ export function TableView(props: TableProps) {
 
   // What just happened, read from the change in state — the engine keeps no move log, and a player
   // watching the floor change with no account of it is the single thing this table most lacked.
-  const receipt = useMoveReceipt(state);
+  // While a position is being reviewed, the caller supplies the receipt for THAT position; the
+  // live table leaves it undefined and gets the running one.
+  const liveReceipt = useMoveReceipt(state);
+  const receipt = props.receipt !== undefined ? props.receipt : liveReceipt;
   const receiptName = receipt?.actorId
     ? receipt.actorId === mySeat
       ? 'You'
@@ -466,6 +475,50 @@ export function TableView(props: TableProps) {
           );
         })}
 
+        {/* MOVED HERE 2026-10-07. The receipt and the turn banner describe what the OTHER side just
+            did and whose move it is, so they belong in the opponent's half of the table — which was
+            largely empty blanket — rather than stacked above the hand. That gave the bottom of the
+            screen back to the cards, which is the part a player actually has to read and touch. */}
+        <div className="baazi-table-info">
+            {/* One line for the move that just happened — whoever made it. Without this a player sees
+                the score move and the floor change with no account of either, which a whole round of
+                play showed to be the single most disorienting thing about the table. */}
+            {receipt && (
+              <div className={`baazi-receipt ${receipt.seepPoints !== undefined ? 'is-seep' : ''}`} role="status" aria-live="polite">
+                {receiptName && <span className="baazi-receipt-who">{receiptName}</span>}
+                <span className="baazi-receipt-what">{receipt.text}</span>
+                {receipt.points !== undefined && receipt.points > 0 && (
+                  <span className="baazi-receipt-points">+{receipt.points}</span>
+                )}
+                {receipt.seepPoints !== undefined && (
+                  <span className="baazi-receipt-seep">SWEEP{receipt.seepPoints > 0 ? ` +${receipt.seepPoints}` : ''}</span>
+                )}
+              </div>
+            )}
+            <TurnBanner
+              yourMove={isYourMove}
+              actingName={seats.find(s => s.isTurn && !s.isYou)?.name ?? null}
+              // Once a card is chosen, the question moves down to sit with its answers (below the
+              // hand). Up here it was covered by the very card it named, which rises as it's picked.
+              prompt={
+                isMyBid
+                  ? 'Tap the card you are calling'
+                  : openingPrompt ?? (isChoosingCard && !selectedCard ? 'Tap a card to play it' : null)
+              }
+              note={
+                props.playedForYou
+                  ? 'Time’s up — Baazi played for you.'
+                  : myHandStillFaceDown
+                  ? 'Cards turn over once the call has been played.'
+                  : isPreOpening && me.hand.length > VISIBLE_PRE_OPENING_CARD_COUNT
+                    ? `You can see your first ${VISIBLE_PRE_OPENING_CARD_COUNT} cards — the rest turn over after your opening play.`
+                    : null
+              }
+              turnStartedAt={props.turnStartedAt}
+              turnLimitMs={props.turnLimitMs}
+            />
+        </div>
+
         <div className="baazi-centre">
           {floorIsBare && <span className="baazi-floor-empty">Floor is empty</span>}
 
@@ -511,43 +564,6 @@ export function TableView(props: TableProps) {
         </div>
 
         <div className="baazi-near">
-          {/* One line for the move that just happened — whoever made it. Without this a player sees
-              the score move and the floor change with no account of either, which a whole round of
-              play showed to be the single most disorienting thing about the table. */}
-          {receipt && (
-            <div className={`baazi-receipt ${receipt.seepPoints !== undefined ? 'is-seep' : ''}`} role="status" aria-live="polite">
-              {receiptName && <span className="baazi-receipt-who">{receiptName}</span>}
-              <span className="baazi-receipt-what">{receipt.text}</span>
-              {receipt.points !== undefined && receipt.points > 0 && (
-                <span className="baazi-receipt-points">+{receipt.points}</span>
-              )}
-              {receipt.seepPoints !== undefined && (
-                <span className="baazi-receipt-seep">SWEEP{receipt.seepPoints > 0 ? ` +${receipt.seepPoints}` : ''}</span>
-              )}
-            </div>
-          )}
-          <TurnBanner
-            yourMove={isYourMove}
-            actingName={seats.find(s => s.isTurn && !s.isYou)?.name ?? null}
-            // Once a card is chosen, the question moves down to sit with its answers (below the
-            // hand). Up here it was covered by the very card it named, which rises as it's picked.
-            prompt={
-              isMyBid
-                ? 'Tap the card you are calling'
-                : openingPrompt ?? (isChoosingCard && !selectedCard ? 'Tap a card to play it' : null)
-            }
-            note={
-              props.playedForYou
-                ? 'Time’s up — Baazi played for you.'
-                : myHandStillFaceDown
-                ? 'Cards turn over once the call has been played.'
-                : isPreOpening && me.hand.length > VISIBLE_PRE_OPENING_CARD_COUNT
-                  ? `You can see your first ${VISIBLE_PRE_OPENING_CARD_COUNT} cards — the rest turn over after your opening play.`
-                  : null
-            }
-            turnStartedAt={props.turnStartedAt}
-            turnLimitMs={props.turnLimitMs}
-          />
           <div className={`baazi-hand ${isYourMove ? 'is-live' : 'is-waiting'}`}>
             <Hand
               cards={sortedForDisplay(isPreOpening ? me.hand.slice(0, VISIBLE_PRE_OPENING_CARD_COUNT) : me.hand)}
@@ -666,13 +682,30 @@ export function TableView(props: TableProps) {
               ))}
             </div>
             {props.lastRoundResult.gameOver ? (
-              <p className="baazi-game-over-line">{gameOverLine(state, sides, mySeat)}</p>
+              <>
+                <p className="baazi-game-over-line">{gameOverLine(state, sides, mySeat)}</p>
+                {props.onRestart && (
+                  <button className="baazi-primary-button" onClick={props.onRestart}>
+                    Play again
+                  </button>
+                )}
+              </>
             ) : (
-              props.onNextRound && (
-                <button className="baazi-primary-button" onClick={props.onNextRound}>
-                  Deal the next round
-                </button>
-              )
+              <>
+                {props.onNextRound && (
+                  <button className="baazi-primary-button" onClick={props.onNextRound}>
+                    Deal the next round
+                  </button>
+                )}
+                {/* Only once the match is effectively settled. Kept quieter than dealing on, because
+                    carrying on is still the ordinary thing to do — this is the other option, not
+                    the recommendation. */}
+                {props.onRestart && (
+                  <button className="baazi-restart-link" onClick={props.onRestart}>
+                    Start a new game
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}

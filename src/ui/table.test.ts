@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actingPlayerId, matchTally, seatAt, seatsAround, sideLabel, sideOfPlayer, sidesAreSettled, sidesInPlay, yourOwnerIds } from './table';
+import { HOUSEHOLD_RESTART_LEAD, actingPlayerId, leadMargin, leadSettlesTheMatch, matchTally, seatAt, seatsAround, sideLabel, sideOfPlayer, sidesAreSettled, sidesInPlay, yourOwnerIds } from './table';
 import type { GameState, Player, Team } from '../types';
 
 function player(id: string, name: string, hand = 0): Player {
@@ -263,5 +263,58 @@ describe('the match tally — the lead, and what the last round was worth', () =
   it('says nothing while a four-handed round 1 has no partnerships yet', () => {
     const s = fourHanded({});
     expect(matchTally(s, [], 'you', null)).toEqual({ lead: null, lastRound: null });
+  });
+});
+
+describe('when the household calls the match', () => {
+  const twoHanded = (scores: Record<string, number>): GameState => ({
+    ...state([player('you', 'You'), player('bot', 'Baazigar')]),
+    scores
+  });
+  const sides = ['you', 'bot'];
+
+  it('measures the gap between the two sides whichever way round it is', () => {
+    expect(leadMargin(twoHanded({ you: 140, bot: 40 }), sides)).toBe(100);
+    expect(leadMargin(twoHanded({ you: 40, bot: 140 }), sides)).toBe(100);
+    expect(leadMargin(twoHanded({ you: 70, bot: 70 }), sides)).toBe(0);
+  });
+
+  it('offers a fresh game at a hundred, up OR down — being thrashed counts too', () => {
+    expect(leadSettlesTheMatch(twoHanded({ you: 150, bot: 20 }), sides)).toBe(true);
+    expect(leadSettlesTheMatch(twoHanded({ you: 20, bot: 150 }), sides)).toBe(true);
+  });
+
+  it('does not offer one while the match is still close', () => {
+    expect(leadSettlesTheMatch(twoHanded({ you: 90, bot: 30 }), sides)).toBe(false);
+    expect(leadSettlesTheMatch(twoHanded({ you: 0, bot: 0 }), sides)).toBe(false);
+  });
+
+  it('counts exactly a hundred as settled — two seeps in a row is the case this exists for', () => {
+    expect(leadSettlesTheMatch(twoHanded({ you: 100, bot: 0 }), sides)).toBe(true);
+    expect(leadSettlesTheMatch(twoHanded({ you: 99, bot: 0 }), sides)).toBe(false);
+  });
+
+  it('uses the same hundred the engine ends a 100-point game on', () => {
+    // If these two ever disagree, a 100-point match would end at one number while the table
+    // offered a fresh deal at another.
+    expect(HOUSEHOLD_RESTART_LEAD).toBe(100);
+  });
+
+  it('says nothing about a table whose sides are not settled yet', () => {
+    expect(leadMargin(twoHanded({ you: 150 }), ['you'])).toBe(0);
+    expect(leadSettlesTheMatch(twoHanded({ you: 150 }), ['you'])).toBe(false);
+  });
+
+  it('reads a four-handed match by team, not by player', () => {
+    const teams = state(
+      [player('you', 'You'), player('left', 'Sydney'), player('partner', 'Grandma'), player('right', 'Harpreet')],
+      [
+        { id: 'team-0', name: 'Team 0', playerIds: ['you', 'partner'] },
+        { id: 'team-1', name: 'Team 1', playerIds: ['left', 'right'] }
+      ],
+      '4player'
+    );
+    const game = { ...teams, scores: { 'team-0': 180, 'team-1': 60 } };
+    expect(leadSettlesTheMatch(game, sidesInPlay(game, 'you'))).toBe(true);
   });
 });

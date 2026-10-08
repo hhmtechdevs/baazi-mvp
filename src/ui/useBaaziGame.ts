@@ -13,8 +13,11 @@ import {
 } from '../engine/roundOrchestrator';
 import type { NormalPlayMove } from '../engine/moveExecution';
 import { VISIBLE_PRE_OPENING_CARD_COUNT, asSeenByCaller, flattenOptionsForHand, withOnlyVisibleHand } from '../engine/moveAdapter';
-import { botChooseBid, botChooseMove, botChooseOpeningAction } from '../botStrategy';
+import { DEFAULT_DIFFICULTY, botChooseBid, botChooseMove, botChooseOpeningAction } from '../botStrategy';
+import type { Difficulty } from '../botStrategy';
 import { sideLabel } from './table';
+import { remember, stepTo } from './rewind';
+import { chooseDealer } from './dealing';
 
 /** Re-exported so the view layer keeps importing it from here, as it always has. */
 export { VISIBLE_PRE_OPENING_CARD_COUNT, asSeenByCaller } from '../engine/moveAdapter';
@@ -45,6 +48,8 @@ export const OPPONENT_NAME = 'Baazigar';
  * they stand in for the people who will eventually occupy them.
  */
 export type TableKind = 'practice' | 'family';
+
+export type { Difficulty } from '../botStrategy';
 
 const TABLES: Record<TableKind, { mode: '2player' | '4player'; players: { id: string; name: string }[] }> = {
   practice: {
@@ -111,6 +116,16 @@ export interface BaaziUiState {
   /** Whoever is currently taking their time over a decision, or null when it's your move. */
   thinkingPlayerId: string | null;
   botDelayMs: number;
+  /** True when this game was dealt so that YOU call — see dealing.ts. Remembered so that dealing
+   * again keeps doing it. */
+  youCall: boolean;
+  /** Every position this game has been in, oldest first — see rewind.ts. */
+  history: OrchestratedGame[];
+  /** Which remembered position is on screen, or null when watching the live game. */
+  reviewIndex: number | null;
+  /** How well the seats that aren't yours play. Chosen on the Practice door; 'hard' everywhere
+   * else, which is the opponent this app has always had. */
+  difficulty: Difficulty;
 }
 
 /** The seat that has to act and isn't yours — whether that's the call, the opening play, or a
@@ -154,7 +169,11 @@ export function useBaaziGame() {
     lastRoundResult: null,
     lastRoundScores: null,
     thinkingPlayerId: null,
-    botDelayMs: BOT_DELAY_MS_DEFAULT
+    botDelayMs: BOT_DELAY_MS_DEFAULT,
+    difficulty: DEFAULT_DIFFICULTY,
+    youCall: false,
+    history: [],
+    reviewIndex: null
   });
   const timerRef = useRef<number | undefined>(undefined);
 
@@ -162,9 +181,16 @@ export function useBaaziGame() {
     setState(s => ({ ...s, log: [...s.log, line] }));
   }, []);
 
-  const startNewGame = useCallback((gameLengthConfig: GameLengthConfig, table: TableKind) => {
+  const startNewGame = useCallback((
+    gameLengthConfig: GameLengthConfig,
+    table: TableKind,
+    difficulty: Difficulty = DEFAULT_DIFFICULTY,
+    youCall = false
+  ) => {
     const seats = TABLES[table];
-    const dealerId = seats.players[Math.floor(Math.random() * seats.players.length)].id;
+    // Normally whoever the shuffle lands on. With youCall, the seat to your right deals, which is
+    // what puts the call in your hands — see dealing.ts for why that is not a rules change.
+    const dealerId = chooseDealer(seats.players.map(p => p.id), youCall ? HUMAN_ID : null);
     const game = startRound({
       gameId: `baazi-${Date.now()}`,
       mode: seats.mode,
@@ -181,7 +207,11 @@ export function useBaaziGame() {
       lastRoundResult: null,
       lastRoundScores: null,
       thinkingPlayerId: null,
-      botDelayMs: BOT_DELAY_MS_DEFAULT
+      botDelayMs: BOT_DELAY_MS_DEFAULT,
+      difficulty,
+      youCall,
+      history: [],
+      reviewIndex: null
     });
   }, []);
 
@@ -241,6 +271,74 @@ export function useBaaziGame() {
     });
   }, []);
 
+  /**
+   * Deal a brand-new match at the same table, same length, same opponent strength.
+   *
+   * Everything a new game needs is already being held — the length, which table, how well the
+   * other seats play — so starting over is simply dealing again with what is there, rather than
+   * sending the player back through the front door to answer questions they already answered.
+   */
+  const restartGame = useCallback((opts?: { youCall?: boolean }) => {
+    if (!state.gameLengthConfig || !state.table) return;
+    startNewGame(state.gameLengthConfig, state.table, state.difficulty, opts?.youCall ?? state.youCall);
+  }, [state.gameLengthConfig, state.table, state.difficulty, state.youCall, startNewGame]);
+
+  // Remember every position the game passes through. The engine hands back a new object for each
+  // real transition, so this is a reference per move and nothing more — no copying, no rule
+  // knowledge, no effect on play.
+  useEffect(() => {
+    setState(s => {
+      const history = remember(s.history, s.game);
+      return history === s.history ? s : { ...s, history };
+    });
+  }, [state.game]);
+
+  const review = useCallback((index: number) => {
+    setState(s => (s.history.length === 0 ? s : { ...s, reviewIndex: stepTo(s.history, index) }));
+  }, []);
+
+  const stepBack = useCallback(() => {
+    setState(s => {
+      if (s.history.length === 0) return s;
+      const from = s.reviewIndex ?? s.history.length - 1;
+      return { ...s, reviewIndex: stepTo(s.history, from - 1) };
+    });
+  }, []);
+
+  const stepForward = useCallback(() => {
+    setState(s => {
+      if (s.reviewIndex === null) return s;
+      const next = stepTo(s.history, s.reviewIndex + 1);
+      // Stepping off the end is simply catching up with the live game again.
+      return next >= s.history.length - 1 ? { ...s, reviewIndex: null } : { ...s, reviewIndex: next };
+    });
+  }, []);
+
+  const leaveReview = useCallback(() => setState(s => ({ ...s, reviewIndex: null })), []);
+
+  /**
+   * Carry on from the position being reviewed, discarding what came after it.
+   *
+   * The engine never mutated any of these snapshots, so an older one is a completely valid game to
+   * resume — which is what makes "take that move again, differently" possible at all.
+   */
+  const resumeHere = useCallback(() => {
+    setState(s => {
+      if (s.reviewIndex === null) return s;
+      const game = s.history[s.reviewIndex];
+      if (!game) return s;
+      return {
+        ...s,
+        game,
+        history: s.history.slice(0, s.reviewIndex + 1),
+        reviewIndex: null,
+        lastRoundResult: null,
+        thinkingPlayerId: null,
+        log: [...s.log, 'Rewound to an earlier position.']
+      };
+    });
+  }, []);
+
   const setBotDelayMs = useCallback((ms: number) => setState(s => ({ ...s, botDelayMs: ms })), []);
 
   // Take the turn of whichever seat isn't yours — bid, opening action, or a normal-play move —
@@ -255,18 +353,21 @@ export function useBaaziGame() {
 
     const seatId = seatAwaitingComputer(game);
     if (!seatId) return undefined;
+    // Nobody plays while the table is being read backwards.
+    if (state.reviewIndex !== null) return undefined;
 
     const phase = game.state.phase;
     const who = game.state.players.find(p => p.id === seatId)?.name ?? seatId;
+    const thinking = { difficulty: state.difficulty };
 
     setState(s => ({ ...s, thinkingPlayerId: seatId }));
     timerRef.current = window.setTimeout(() => {
       if (phase === 'bidding') {
         // Called from the same four cards a person would be looking at — see asSeenByCaller.
-        const value = botChooseBid(asSeenByCaller(game, seatId), seatId);
+        const value = botChooseBid(asSeenByCaller(game, seatId), seatId, thinking);
         setState(s => ({ ...s, game: submitBid(game, seatId, value), thinkingPlayerId: null, log: [...s.log, `${who} bid ${value}.`] }));
       } else if (phase === 'revealing') {
-        const action = botChooseOpeningAction(asSeenByCaller(game, seatId), seatId);
+        const action = botChooseOpeningAction(asSeenByCaller(game, seatId), seatId, thinking);
         setState(s => ({
           ...s,
           game: submitOpeningAction(game, seatId, action),
@@ -274,7 +375,7 @@ export function useBaaziGame() {
           log: [...s.log, `${who} ${describeOpeningAction(action)}.`]
         }));
       } else {
-        const move = botChooseMove(game, seatId);
+        const move = botChooseMove(game, seatId, thinking);
         setState(s => ({
           ...s,
           game: submitMove(game, seatId, move),
@@ -285,11 +386,20 @@ export function useBaaziGame() {
     }, state.botDelayMs);
 
     return () => window.clearTimeout(timerRef.current);
-  }, [state.game, state.botDelayMs]);
+  }, [state.game, state.botDelayMs, state.difficulty, state.reviewIndex]);
 
   return {
     ...state,
     startNewGame,
+    restartGame,
+    review,
+    stepBack,
+    stepForward,
+    leaveReview,
+    resumeHere,
+    /** The position on screen: the live game, or whichever one is being reviewed. */
+    viewedGame: state.reviewIndex === null ? state.game : (state.history[state.reviewIndex] ?? state.game),
+    isReviewing: state.reviewIndex !== null,
     submitHumanBid,
     submitHumanOpeningAction,
     submitHumanMove,
