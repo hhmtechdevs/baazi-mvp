@@ -122,9 +122,19 @@ export function describeMove(prev: GameState, next: GameState): MoveReceipt | nu
     };
   }
   if (added.length === 1) {
-    // One house replaced another: the value was raised, or two houses were merged into one.
+    // One house replaced another: it was raised to a value nothing held, or folded into a house
+    // that already sat there. Either way somebody's house was broken, and saying WHICH is the
+    // whole point — "Raised a house to 13" never told you whose 10 had just gone. The houses that
+    // vanished are exactly the ones that were broken, so the diff already knows.
     const house = added[0];
-    return { actorId, kind: 'raise', text: `Raised a house to ${house.captureValue} · ${played}` };
+    const broken = [...before.values()]
+      .filter(h => !after.has(h.id))
+      .map(h => h.captureValue)
+      .sort((a, b) => a - b);
+    const what = broken.length
+      ? `Broke the ${broken.join(' and ')}-house to build ${house.captureValue}`
+      : `Raised a house to ${house.captureValue}`;
+    return { actorId, kind: 'raise', text: `${what} · ${played}` };
   }
   if (grown.length === 1) {
     const house = grown[0];

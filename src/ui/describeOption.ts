@@ -89,20 +89,27 @@ export function describeLegalOption(option: LegalOption, state: GameState, withS
         house(option.existingHouseId),
         option.absorbedLooseCardIds.map(card)
       );
-    case 'break':
-      // Raises an existing house to a new value nothing occupies yet.
-      return equation(
+    case 'break': {
+      // Raises an existing house to a value nothing occupies yet — which breaks whoever owned it.
+      // Said in words rather than left to the brackets: a player reading "([10] + 3) = [13]" under
+      // the heading BUILD HOUSE could not tell that the 10 was a house being taken off somebody.
+      const sum = equation(
         [house(option.existingHouseId), card(option.handCardId)],
         String(option.resultingValue),
         option.absorbedLooseCardIds.map(card)
       );
-    case 'mergeFix':
-      // Raises an existing house into another house already sitting at the new value.
-      return equation(
+      return `break ${house(option.existingHouseId)} to build ${option.resultingValue} · ${sum}`;
+    }
+    case 'mergeFix': {
+      // Raises an existing house into another already sitting at the new value — same breakage,
+      // and the two become one.
+      const sum = equation(
         [house(option.existingHouseId), card(option.handCardId)],
         house(option.targetHouseId),
         option.absorbedLooseCardIds.map(card)
       );
+      return `break ${house(option.existingHouseId)} into ${house(option.targetHouseId)} · ${sum}`;
+    }
     case 'capture': {
       const parts = option.targets.map(target =>
         target.type === 'loose' ? card(target.cardId) : house(target.houseId)

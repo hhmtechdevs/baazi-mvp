@@ -19,14 +19,7 @@ import type { GameState } from '../types';
  */
 
 /** What a player can do with a card, in their words rather than the rulebook's. */
-export type ActionVerb =
-  | 'COLLECT'
-  | 'CEMENT'
-  | 'ADD TO HOUSE'
-  | 'BUILD HOUSE'
-  | 'BREAK HOUSE'
-  | 'MERGE HOUSES'
-  | 'PLAY CARD';
+export type ActionVerb = 'COLLECT' | 'CEMENT' | 'ADD TO HOUSE' | 'BUILD HOUSE' | 'PLAY CARD';
 
 /**
  * Which of them an engine option is.
@@ -59,32 +52,20 @@ export function verbFor(option: LegalOption): ActionVerb {
       return 'CEMENT';
     case 'addToFixed':
       return 'ADD TO HOUSE';
+    // All three MAKE a house of some value, which is what the verb promises. Breaking is what one
+    // of them does to the other player on the way — a consequence, not a category — so it belongs
+    // in the sentence rather than the heading. See describeLegalOption and the move receipt, both
+    // of which say "break the 10-house to build 13" in as many words. (Product Owner, 2026-10-07,
+    // after a round where "BUILD HOUSE ([10] + 3) = [13]" read as a build with a card not held.)
     case 'build':
-      return 'BUILD HOUSE';
-    // NOT builds (2026-10-07). Both take a house that is already standing — usually somebody
-    // else's — and change what it is worth, which is the opposite of making one. Called "BUILD
-    // HOUSE" they read as creating something from the loose cards, and a player shown
-    // "BUILD HOUSE ([10] + 3) = [13]" reasonably asked why they were being offered a build with
-    // a card they did not hold. The house in the sum is the giveaway, and it deserved a verb.
     case 'break':
-      return 'BREAK HOUSE';
     case 'mergeFix':
-      return 'MERGE HOUSES';
+      return 'BUILD HOUSE';
   }
 }
 
 /** The order choices are listed in, so the same situation always looks the same. */
-// Taking cards first, then the quiet house actions, then the two that seize somebody else's
-// house, then simply putting a card down.
-const VERB_ORDER: ActionVerb[] = [
-  'COLLECT',
-  'CEMENT',
-  'ADD TO HOUSE',
-  'BUILD HOUSE',
-  'BREAK HOUSE',
-  'MERGE HOUSES',
-  'PLAY CARD'
-];
+const VERB_ORDER: ActionVerb[] = ['COLLECT', 'CEMENT', 'ADD TO HOUSE', 'BUILD HOUSE', 'PLAY CARD'];
 
 export interface Choice {
   option: LegalOption;

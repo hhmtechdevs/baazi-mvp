@@ -170,29 +170,19 @@ describe('plain words at the table', () => {
   // Product Owner, 2026-09-19, after a live game: landing a card on a house that is already there
   // is CEMENT, not BUILD HOUSE. Both used to read BUILD HOUSE, which put "COLLECT [13]" beside
   // "BUILD HOUSE K♣ = [13]" — and made cementing read like the lone-King house the rules forbid.
-  it('gives every house action its own words — making, seizing and merging are not the same move', () => {
+  it('calls making, raising and merging a house all BUILD HOUSE — they all make one', () => {
     const base = { handCardId: 'x', resultingValue: 11, absorbedLooseCardIds: [] as string[] };
     // Both now turn on whose house it is: free on your own side's, and on anyone else's you must
     // hold the matching card yourself — which also buys you into it.
     expect(verbFor({ kind: 'cement', ...base, floorCardIds: [], existingHouseId: 'h', keySatisfiedBy: 'self', resultingOwnerSides: [] })).toBe('CEMENT');
     expect(verbFor({ kind: 'addToFixed', ...base, floorCardIds: [], existingHouseId: 'h', resultingOwnerSides: ['p1'] })).toBe('ADD TO HOUSE');
 
-    // Only a build makes a house out of loose cards. Break and MergeFix act on a house that is
-    // already standing, usually somebody else's — calling all three "BUILD HOUSE" is what made a
-    // player ask why they were offered a build with a card they did not hold.
+    // Raising somebody's house and merging two of them both END in a house of a new value, which
+    // is what the heading promises. That one of them breaks an opponent on the way is said in the
+    // detail line and in the receipt, not in the verb — see describeLegalOption.
     expect(verbFor({ kind: 'build', ...base, floorCardIds: [], resultingOwnerSides: ['p1'] })).toBe('BUILD HOUSE');
-    expect(verbFor({ kind: 'break', ...base, existingHouseId: 'h', resultingOwnerSides: ['p1'] })).toBe('BREAK HOUSE');
-    expect(verbFor({ kind: 'mergeFix', ...base, existingHouseId: 'h', targetHouseId: 't', resultingOwnerSides: ['p1'] })).toBe('MERGE HOUSES');
-  });
-
-  it('orders a seizure after the quiet house actions but ahead of simply playing a card', () => {
-    const base = { handCardId: 'x', resultingValue: 11, absorbedLooseCardIds: [] as string[] };
-    const order = [
-      verbFor({ kind: 'build', ...base, floorCardIds: [], resultingOwnerSides: ['p1'] }),
-      verbFor({ kind: 'break', ...base, existingHouseId: 'h', resultingOwnerSides: ['p1'] }),
-      verbFor({ kind: 'mergeFix', ...base, existingHouseId: 'h', targetHouseId: 't', resultingOwnerSides: ['p1'] })
-    ];
-    expect(order).toEqual(['BUILD HOUSE', 'BREAK HOUSE', 'MERGE HOUSES']);
+    expect(verbFor({ kind: 'break', ...base, existingHouseId: 'h', resultingOwnerSides: ['p1'] })).toBe('BUILD HOUSE');
+    expect(verbFor({ kind: 'mergeFix', ...base, existingHouseId: 'h', targetHouseId: 't', resultingOwnerSides: ['p1'] })).toBe('BUILD HOUSE');
   });
 });
 

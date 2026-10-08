@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { describeMove, floorIsOneCaptureFromEmpty, floorItems, housePoints, loosePoints } from './moveNarrative';
 import { executeMove } from '../engine/moveExecution';
+import { discoverLegalOptions } from '../engine/legalMoves';
+import { toNormalPlayMove } from '../engine/moveAdapter';
 import { createDeck } from '../engine/deck';
 import type { Card, GameState, House, Player } from '../types';
 
@@ -172,4 +174,29 @@ describe('what a house is worth to whoever takes it', () => {
     const shell: House = { ...rich, cards: [card('6', 'clubs'), card('5', 'clubs')] };
     expect(housePoints(shell)).toBe(0); // same value, nothing in it
   });
+});
+
+describe('a broken house is named, not just the one that replaced it', () => {
+  // Run through the engine like every other receipt here: discover the real break, apply it, diff.
+  it('says which house was broken and what it became', () => {
+    const three = card('3', 'hearts');
+    const theirTen: House = {
+      id: 'h-ten',
+      ownerSides: ['p2'],
+      cards: [card('5', 'clubs'), card('5', 'diamonds')],
+      captureValue: 10,
+      isCemented: false
+    };
+    // The King stays in hand as the key for the 13 this becomes.
+    const before = position({ mine: [three, card('K', 'diamonds')], houses: [theirTen] });
+    const option = discoverLegalOptions(before, 'p1', three.id).find(o => o.kind === 'break');
+    expect(option, 'expected a break to be available').toBeDefined();
+
+    const after = executeMove(before, 'p1', toNormalPlayMove(option!));
+    const receipt = describeMove(before, after);
+
+    expect(receipt?.kind).toBe('raise');
+    expect(receipt?.text).toBe('Broke the 10-house to build 13 · 3♥');
+  });
+
 });

@@ -131,7 +131,7 @@ describe('move labels read as equations, not prose', () => {
     expect(describeLegalOption(cement, state)).toBe('(5 + 6) = [11]');
   });
 
-  it('raising an existing house puts that house first, in brackets', () => {
+  it('raising an existing house says it breaks that house, and still shows the sum', () => {
     const existing = house('h1', 9, [card('9', 'clubs')]);
     const state = makeState({ hand: [card('2', 'hearts')], floorHouses: [existing] });
     const option: LegalOption = {
@@ -142,7 +142,7 @@ describe('move labels read as equations, not prose', () => {
       absorbedLooseCardIds: [],
       resultingOwnerSides: ['p1']
     };
-    expect(describeLegalOption(option, state)).toBe('([9] + 2) = 11');
+    expect(describeLegalOption(option, state)).toBe('break [9] to build 11 · ([9] + 2) = 11');
   });
 
   it('captures keep a verb, since the same cards could equally be built into a house', () => {
