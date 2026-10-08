@@ -1174,6 +1174,13 @@ body {
   color: #8fbde0;
 }
 
+/* Seizing a house that is already standing, rather than making one of your own. Warm rather than
+   blue, because it is played AT somebody — see verbFor. */
+.baazi-choice-button.is-break-house .baazi-choice-verb,
+.baazi-choice-button.is-merge-houses .baazi-choice-verb {
+  color: #e0a06a;
+}
+
 .baazi-choice-button.is-play-card .baazi-choice-verb {
   color: rgba(250, 247, 240, 0.78);
 }

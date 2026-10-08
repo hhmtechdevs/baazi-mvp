@@ -19,7 +19,14 @@ import type { GameState } from '../types';
  */
 
 /** What a player can do with a card, in their words rather than the rulebook's. */
-export type ActionVerb = 'COLLECT' | 'CEMENT' | 'ADD TO HOUSE' | 'BUILD HOUSE' | 'PLAY CARD';
+export type ActionVerb =
+  | 'COLLECT'
+  | 'CEMENT'
+  | 'ADD TO HOUSE'
+  | 'BUILD HOUSE'
+  | 'BREAK HOUSE'
+  | 'MERGE HOUSES'
+  | 'PLAY CARD';
 
 /**
  * Which of them an engine option is.
@@ -53,14 +60,31 @@ export function verbFor(option: LegalOption): ActionVerb {
     case 'addToFixed':
       return 'ADD TO HOUSE';
     case 'build':
-    case 'break':
-    case 'mergeFix':
       return 'BUILD HOUSE';
+    // NOT builds (2026-10-07). Both take a house that is already standing — usually somebody
+    // else's — and change what it is worth, which is the opposite of making one. Called "BUILD
+    // HOUSE" they read as creating something from the loose cards, and a player shown
+    // "BUILD HOUSE ([10] + 3) = [13]" reasonably asked why they were being offered a build with
+    // a card they did not hold. The house in the sum is the giveaway, and it deserved a verb.
+    case 'break':
+      return 'BREAK HOUSE';
+    case 'mergeFix':
+      return 'MERGE HOUSES';
   }
 }
 
 /** The order choices are listed in, so the same situation always looks the same. */
-const VERB_ORDER: ActionVerb[] = ['COLLECT', 'CEMENT', 'ADD TO HOUSE', 'BUILD HOUSE', 'PLAY CARD'];
+// Taking cards first, then the quiet house actions, then the two that seize somebody else's
+// house, then simply putting a card down.
+const VERB_ORDER: ActionVerb[] = [
+  'COLLECT',
+  'CEMENT',
+  'ADD TO HOUSE',
+  'BUILD HOUSE',
+  'BREAK HOUSE',
+  'MERGE HOUSES',
+  'PLAY CARD'
+];
 
 export interface Choice {
   option: LegalOption;
