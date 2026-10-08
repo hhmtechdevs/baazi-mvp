@@ -96,7 +96,21 @@ export type CaptureTarget =
   | { type: 'house'; houseId: string }
 
 export type OpeningAction =
-  | { type: 'build'; builderCardId: string; floorCardIds: string[] }
+  | {
+      type: 'build';
+      builderCardId: string;
+      floorCardIds: string[];
+      /**
+       * Other loose groups already worth the called value, swept into the same house — the frozen
+       * Combine rule says every compatible non-overlapping group that CAN be incorporated must be.
+       *
+       * Optional and additive: an action written before this field existed still means what it
+       * always meant, which is why no envelope version changes. Omitting it on a floor that does
+       * have such a group is now rejected, because leaving it behind is the defect this field
+       * exists to fix.
+       */
+      absorbedLooseCardIds?: string[];
+    }
   | { type: 'capture'; bidCardId: string; targets: CaptureTarget[] }
   | { type: 'throw'; bidCardId: string }
 

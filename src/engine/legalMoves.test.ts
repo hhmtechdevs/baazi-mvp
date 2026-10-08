@@ -406,22 +406,36 @@ describe('Add-to-Fixed requires retaining a card to eventually capture the house
     expect(options.some(o => o.kind === 'addToFixed')).toBe(false);
   });
 
-  it('Test 3 — a non-matching card reaching the value only via a floor combination: Add-to-Fixed remains legal regardless of retains', () => {
-    // Hand card is a 5 (rank value 5), combined with a loose floor 6, lands on the house's value
-    // of 11. The 5 itself is not an 11, so there is no capture ability at stake for this card —
-    // normal-play Capture always targets the played card's own rank (5), not 11.
+  it('Test 3 — a card reaching the value only via a floor combination STILL needs the side to hold a key', () => {
+    // REVISED 2026-10-07 (Product Owner). This used to assert the opposite: that reaching the
+    // value through a floor combo exempted the move from the retains check entirely. Live play
+    // showed what that permits — feeding an opponent's cemented house with no way to ever collect
+    // it. The retains concern does not depend on HOW the value is reached. See
+    // ADD_TO_FIXED_OWNERSHIP.md.
     const five = card('5', 'hearts');
-    const fixedHouse: House = {
+    // Somebody ELSE's house — the key requirement applies to a house your side has no claim on.
+    const theirHouse: House = {
       id: 'house-A',
-      ownerSides: ['p1'],
+      ownerSides: ['p2'],
       cards: [card('9', 'clubs'), card('A', 'hearts')],
       captureValue: 11,
       isCemented: true
     };
-    const state = makeNormalState({ hand: [five, card('3', 'clubs')], floorLoose: [card('6', 'spades')], floorHouses: [fixedHouse] });
 
-    const options = discoverLegalOptions(state, 'p1', five.id);
-    expect(options.some(o => o.kind === 'addToFixed')).toBe(true);
+    // No 11 anywhere in hand once the 5 is played: refused.
+    const keyless = makeNormalState({ hand: [five, card('3', 'clubs')], floorLoose: [card('6', 'spades')], floorHouses: [theirHouse] });
+    expect(discoverLegalOptions(keyless, 'p1', five.id).some(o => o.kind === 'addToFixed')).toBe(false);
+
+    // Holding a Jack to collect it with: allowed, and it buys p1 into the house.
+    const withKey = makeNormalState({ hand: [five, card('J', 'clubs')], floorLoose: [card('6', 'spades')], floorHouses: [theirHouse] });
+    const add = discoverLegalOptions(withKey, 'p1', five.id).find(o => o.kind === 'addToFixed');
+    expect(add).toBeDefined();
+    expect(add!.resultingOwnerSides.sort()).toEqual(['p1', 'p2']);
+
+    // And on a house p1's own side already owns, no key of their own is needed at all.
+    const ours: House = { ...theirHouse, ownerSides: ['p1'] };
+    const onOurs = makeNormalState({ hand: [five, card('3', 'clubs')], floorLoose: [card('6', 'spades')], floorHouses: [ours] });
+    expect(discoverLegalOptions(onOurs, 'p1', five.id).some(o => o.kind === 'addToFixed')).toBe(true);
   });
 
   it('applies regardless of who owns the fixed house — this is about the acting player\'s own hand, not house ownership', () => {

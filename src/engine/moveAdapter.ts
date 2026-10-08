@@ -48,7 +48,14 @@ export function toNormalPlayMove(option: LegalOption): NormalPlayMove {
  * discovers cement/break/mergeFix/addToFixed pre-opening, since no houses exist on a freshly
  * revealed floor yet). */
 export function toOpeningAction(option: LegalOption): OpeningAction {
-  if (option.kind === 'build') return { type: 'build', builderCardId: option.handCardId, floorCardIds: option.floorCardIds };
+  if (option.kind === 'build') {
+    return {
+      type: 'build',
+      builderCardId: option.handCardId,
+      floorCardIds: option.floorCardIds,
+      absorbedLooseCardIds: option.absorbedLooseCardIds
+    };
+  }
   if (option.kind === 'capture') return { type: 'capture', bidCardId: option.handCardId, targets: option.targets };
   if (option.kind === 'throw') return { type: 'throw', bidCardId: option.handCardId };
   throw new Error(`"${option.kind}" is not a reachable opening-decision option.`);

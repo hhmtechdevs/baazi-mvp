@@ -2,6 +2,7 @@ import type { Card, CaptureTarget, GameState, House, Player, SweepRecord } from 
 import { discoverLegalOptions } from './legalMoves';
 import { assertCardInvariant } from './deal';
 import { advanceAfterMove, advanceAfterOpeningAction } from './turnProgression';
+import { newHouseId } from './ids';
 
 // ---------------------------------------------------------------------------
 // Small internal helpers (re-declared here rather than imported from other
@@ -69,7 +70,7 @@ function executeBuild(state: GameState, playerId: string, handCardId: string, fl
   const movedCards = state.floor.loose.filter(c => removedIds.has(c.id));
 
   const house: House = {
-    id: `house-${crypto.randomUUID()}`,
+    id: newHouseId(),
     ownerSides: matched.resultingOwnerSides,
     cards: [...movedCards, handCard],
     captureValue: matched.resultingValue,
@@ -157,7 +158,7 @@ function executeBreak(state: GameState, playerId: string, handCardId: string, ex
   const absorbedCards = state.floor.loose.filter(c => absorbedIds.has(c.id));
 
   const raised: House = {
-    id: `house-${crypto.randomUUID()}`,
+    id: newHouseId(),
     ownerSides: matched.resultingOwnerSides,
     cards: [...brokenHouse.cards, ...absorbedCards, handCard],
     captureValue: matched.resultingValue,
@@ -207,7 +208,7 @@ function executeMergeFix(
   const absorbedCards = state.floor.loose.filter(c => absorbedIds.has(c.id));
 
   const merged: House = {
-    id: `house-${crypto.randomUUID()}`,
+    id: newHouseId(),
     ownerSides: matched.resultingOwnerSides,
     cards: [...brokenHouse.cards, ...targetHouse.cards, ...absorbedCards, handCard],
     captureValue: matched.resultingValue,
@@ -257,8 +258,11 @@ function executeAddToFixed(
 
   const updated: House = {
     ...existingHouse,
-    cards: [...existingHouse.cards, ...movedCards, handCard]
-    // isCemented and ownerSides are deliberately untouched — Add-to-Fixed never changes either.
+    cards: [...existingHouse.cards, ...movedCards, handCard],
+    // isCemented is untouched — a fixed house stays fixed. Ownership is NOT: adding to a house
+    // your side does not own buys you into it, so a red house becomes purple (Product Owner,
+    // 2026-10-07, corroborated by Pagat). Discovery decided this; Ingredient 5 only applies it.
+    ownerSides: matched.resultingOwnerSides
   };
 
   const nextState: GameState = {

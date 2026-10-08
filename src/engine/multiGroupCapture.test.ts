@@ -23,8 +23,8 @@ const player = (id: string, hand: Card[]): Player => ({ id, name: id, teamId: nu
 /** The floor from the report: Q, A, 7, 6, all loose. */
 const theFloor = () => [card('Q', 'clubs'), card('A', 'diamonds'), card('7', 'hearts'), card('6', 'spades')];
 
-function midRound(hand: Card[]): GameState {
-  const loose = theFloor();
+function midRound(hand: Card[], looseOverride?: Card[]): GameState {
+  const loose = looseOverride ?? theFloor();
   const opponent = [card('2', 'hearts')];
   const used = new Set([...hand, ...loose, ...opponent].map(c => c.id));
   return {
@@ -155,5 +155,62 @@ describe('the same King at the OPENING', () => {
     const king = card('K', 'spades');
     const bare: GameState = { ...atTheOpening([king, card('4', 'clubs')]), floor: { loose: [], houses: [] } };
     expect(discoverLegalOptionsForHand(bare, 'p1')[king.id].map(o => o.kind)).toEqual(['throw']);
+  });
+});
+
+/**
+ * THE SAME CAPTURE, OFFERED TWICE — found in seeded play at roughly one option list in 120,000,
+ * and long visible as an intermittent failure of the bot's "every chosen move was discovered"
+ * invariant. Fixed 2026-10-07.
+ *
+ * The search finds every MAXIMAL SET OF GROUPS, and two different groupings can cover exactly the
+ * same cards. A 3 played over 2♦ A♠ 2♠ A♥ can pair 2♦+A♠ with 2♠+A♥, or 2♦+A♥ with 2♠+A♠ — the
+ * same four cards either way. The grouping is an artefact of the search; what the player chooses
+ * between is the set of cards they pick up.
+ */
+describe('a capture is offered once per set of cards taken, not once per grouping', () => {
+  const threeOverTwoPairs = () =>
+    midRound([card('3', 'hearts'), card('9', 'clubs')], [
+      card('2', 'diamonds'),
+      card('6', 'diamonds'),
+      card('A', 'spades'),
+      card('A', 'hearts'),
+      card('2', 'spades')
+    ]);
+
+  it('offers exactly one capture where two groupings reach the same four cards', () => {
+    const captures = discoverLegalOptions(threeOverTwoPairs(), 'p1', '3-hearts').filter(o => o.kind === 'capture');
+
+    expect(captures).toHaveLength(1);
+    expect(captures[0].targets.map(t => (t.type === 'loose' ? t.cardId : t.houseId)).sort()).toEqual(
+      ['2-diamonds', '2-spades', 'A-hearts', 'A-spades'].sort()
+    );
+  });
+
+  it('shows the player one COLLECT, not two identical ones', () => {
+    // There IS a real choice here — the 3 can also build a 9-house with the loose 6, keeping the
+    // 9 in hand — so the row is expected. What must not appear is the same collect listed twice.
+    const state = threeOverTwoPairs();
+    const plan = planForCard(discoverLegalOptions(state, 'p1', '3-hearts'), state);
+
+    if (plan.kind !== 'choose') throw new Error('expected a row of choices');
+    expect(plan.choices.filter(c => c.verb === 'COLLECT')).toHaveLength(1);
+    expect(plan.choices.map(c => c.verb)).toContain('BUILD HOUSE');
+
+    // And no two choices describe the same move.
+    const details = plan.choices.map(c => `${c.verb} ${c.detail}`);
+    expect(new Set(details).size).toBe(details.length);
+  });
+
+  it('never offers two options with the same targets, across every card of a cluttered floor', () => {
+    // A floor dense in low cards is where equivalent groupings multiply.
+    const floor = [card('A', 'spades'), card('A', 'hearts'), card('2', 'spades'), card('2', 'diamonds'), card('3', 'clubs')];
+    for (const rank of ['2', '3', '4', '5', '6'] as const) {
+      const state = midRound([card(rank, 'hearts'), card('9', 'clubs')], floor);
+      const captures = discoverLegalOptions(state, 'p1', `${rank}-hearts`).filter(o => o.kind === 'capture');
+      const keys = captures.map(c => c.targets.map(t => (t.type === 'loose' ? t.cardId : t.houseId)).sort().join('+'));
+
+      expect(new Set(keys).size, `duplicate capture offered for a ${rank}`).toBe(keys.length);
+    }
   });
 });

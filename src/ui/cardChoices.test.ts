@@ -45,12 +45,15 @@ function plan(state: GameState, cardId: string) {
 }
 
 describe('one legal action is simply played', () => {
-  it('a card whose only move is to go down is played on the tap — no confirmation', () => {
+  it('a card whose only move is to go down is still ASKED — giving a card away is never automatic', () => {
+    // Deliberately not played on the tap. A throw is the one move a player regrets, and it is also
+    // the commonest single option there is, so an instant throw reads as the table deciding for
+    // you — particularly when the build or break you were reaching for was quietly unavailable.
     const four = card('4', 'spades');
     const state = position([four]); // empty floor: nothing to capture or build with
     const result = plan(state, four.id);
-    expect(result.kind).toBe('direct');
-    expect(result.kind === 'direct' && result.choice.verb).toBe('PLAY CARD');
+    expect(result.kind).toBe('choose');
+    expect(result.kind === 'choose' && result.choices.map(c => c.verb)).toEqual(['PLAY CARD']);
   });
 
   it('a card with exactly one capture is played on the tap', () => {
@@ -130,12 +133,12 @@ describe('several ways to capture are each offered', () => {
 });
 
 describe('a house is only ever built on purpose', () => {
-  it('a lone 9 with nothing to build with offers no house — it can only be played down', () => {
+  it('a lone 9 with nothing to build with offers no house — only playing it down, and that is asked', () => {
     const nine = card('9', 'hearts');
     const state = position([nine, card('9', 'clubs')]); // twin kept, empty floor
     const result = plan(state, nine.id);
-    expect(result.kind).toBe('direct');
-    expect(result.kind === 'direct' && result.choice.verb).toBe('PLAY CARD');
+    expect(result.kind).toBe('choose');
+    expect(result.kind === 'choose' && result.choices.map(c => c.verb)).toEqual(['PLAY CARD']);
   });
 
   it('building on a loose 9 is offered as an explicit BUILD HOUSE choice that shows the sum', () => {
@@ -169,10 +172,10 @@ describe('plain words at the table', () => {
   // "BUILD HOUSE K♣ = [13]" — and made cementing read like the lone-King house the rules forbid.
   it('separates cementing, adding to a pukka house, and making or raising one', () => {
     const base = { handCardId: 'x', resultingValue: 11, absorbedLooseCardIds: [] as string[] };
-    // Cementing needs your side's matching card; adding to an already-pukka house needs nothing.
-    // A player offered "CEMENT ... = [9]" while holding no 9 reasonably read it as a bug.
+    // Both now turn on whose house it is: free on your own side's, and on anyone else's you must
+    // hold the matching card yourself — which also buys you into it.
     expect(verbFor({ kind: 'cement', ...base, floorCardIds: [], existingHouseId: 'h', keySatisfiedBy: 'self', resultingOwnerSides: [] })).toBe('CEMENT');
-    expect(verbFor({ kind: 'addToFixed', ...base, floorCardIds: [], existingHouseId: 'h' })).toBe('ADD TO HOUSE');
+    expect(verbFor({ kind: 'addToFixed', ...base, floorCardIds: [], existingHouseId: 'h', resultingOwnerSides: ['p1'] })).toBe('ADD TO HOUSE');
 
     expect(verbFor({ kind: 'build', ...base, floorCardIds: [], resultingOwnerSides: ['p1'] })).toBe('BUILD HOUSE');
     expect(verbFor({ kind: 'break', ...base, existingHouseId: 'h', resultingOwnerSides: ['p1'] })).toBe('BUILD HOUSE');
@@ -220,5 +223,25 @@ describe('sweeps, marked on the choice itself', () => {
     const busier = position([two, card('J', 'spades')], [card('9', 'clubs'), card('4', 'spades')]);
     const safer = choicesForCard(discoverLegalOptions(busier, 'p1', two.id), busier).find(c => c.verb === 'BUILD HOUSE')!;
     expect(safer.opensSweep).toBeFalsy(); // house plus the 4 still on the floor
+  });
+});
+
+describe('a card is never given away on a single tap', () => {
+  it('a lone capture still plays straight away — taking cards is not a move anyone regrets', () => {
+    const four = card('4', 'spades');
+    const state = position([four], [card('4', 'clubs')]);
+    const result = plan(state, four.id);
+    expect(result.kind).toBe('direct');
+    expect(result.kind === 'direct' && result.choice.verb).toBe('COLLECT');
+  });
+
+  it('a lone throw asks, and the choice it offers is exactly the engine\'s own throw option', () => {
+    const four = card('4', 'spades');
+    const state = position([four]);
+    const result = plan(state, four.id);
+    if (result.kind !== 'choose') throw new Error('expected a confirmation');
+    expect(result.choices).toHaveLength(1);
+    expect(result.choices[0].option.kind).toBe('throw');
+    expect(result.choices[0].option.handCardId).toBe(four.id);
   });
 });

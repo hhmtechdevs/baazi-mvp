@@ -1,5 +1,6 @@
 import type { Card, CaptureTarget, GameState, House, OpeningAction, Player, Rank } from '../types';
 import { assertCardInvariant } from './deal';
+import { newHouseId } from './ids';
 
 // ---------------------------------------------------------------------------
 // Small internal helpers, mirroring the conventions established in deal.ts.
@@ -86,7 +87,44 @@ function requireOpeningPreconditions(state: GameState, playerId: string): void {
 // BUILD
 // ---------------------------------------------------------------------------
 
-function applyBuild(state: GameState, playerId: string, builderCardId: string, floorCardIds: string[]): GameState {
+/**
+ * Splits `cards` into groups that each total exactly `value`, or returns null if they do not
+ * divide cleanly. Returns the GROUPS rather than a yes/no, because how many there are is itself a
+ * rule input — see the cementing decision in applyBuild.
+ *
+ * Ingredient 3 validates the opening build independently of discovery, so it answers this itself
+ * rather than asking Ingredient 4. The opening floor holds four cards and the primary combo takes
+ * at least one of them, so this never sees more than three.
+ */
+function splitIntoGroupsOf(cards: Card[], value: number): Card[][] | null {
+  if (cards.length === 0) return [];
+  const [first, ...rest] = cards;
+  // The first card must belong to SOME group, so try every group that could contain it.
+  for (let mask = 0; mask < 1 << rest.length; mask++) {
+    const group = [first, ...rest.filter((_, i) => mask & (1 << i))];
+    if (group.reduce((sum, c) => sum + rankValue(c.rank), 0) !== value) continue;
+    const remainder = splitIntoGroupsOf(rest.filter((_, i) => !(mask & (1 << i))), value);
+    if (remainder) return [group, ...remainder];
+  }
+  return null;
+}
+
+/** True when some non-empty subset of `cards` totals exactly `value`. */
+function anyGroupWorth(cards: Card[], value: number): boolean {
+  for (let mask = 1; mask < 1 << cards.length; mask++) {
+    const group = cards.filter((_, i) => mask & (1 << i));
+    if (group.reduce((sum, c) => sum + rankValue(c.rank), 0) === value) return true;
+  }
+  return false;
+}
+
+function applyBuild(
+  state: GameState,
+  playerId: string,
+  builderCardId: string,
+  floorCardIds: string[],
+  absorbedLooseCardIds: string[] = []
+): GameState {
   const bidValue = state.bidValue as number;
   const bidder = getPlayer(state, playerId);
 
@@ -95,7 +133,7 @@ function applyBuild(state: GameState, playerId: string, builderCardId: string, f
     throw new Error(`Card ${builderCardId} is not in your hand.`);
   }
 
-  if (hasDuplicates(floorCardIds)) {
+  if (hasDuplicates([...floorCardIds, ...absorbedLooseCardIds])) {
     throw new Error('The same floor card was selected more than once.');
   }
 
@@ -133,19 +171,58 @@ function applyBuild(state: GameState, playerId: string, builderCardId: string, f
     );
   }
 
+  // ABSORPTION. Every other loose group already worth the called value joins the same house — the
+  // frozen Combine rule, which the opening did not implement until 2026-10-07. Validated here
+  // rather than taken on trust, in keeping with Ingredient 3 checking the build for itself.
+  const absorbedCards: Card[] = [];
+  for (const id of absorbedLooseCardIds) {
+    const looseCard = state.floor.loose.find(c => c.id === id);
+    if (!looseCard) {
+      throw new Error(`Card ${id} is not a loose card currently on the floor.`);
+    }
+    absorbedCards.push(looseCard);
+  }
+  const absorbedGroups = splitIntoGroupsOf(absorbedCards, bidValue);
+  if (!absorbedGroups) {
+    throw new Error(
+      `The absorbed cards do not divide into groups worth ${bidValue}. Only whole groups already worth the called value may join the house.`
+    );
+  }
+
+  // ...and every such group MUST join: "can be incorporated" means "must be incorporated", so a
+  // build that walks past one is rejected rather than quietly leaving it on the floor.
+  const takenIds = new Set([...floorCardIds, ...absorbedLooseCardIds]);
+  const leftBehind = state.floor.loose.filter(c => !takenIds.has(c.id));
+  if (anyGroupWorth(leftBehind, bidValue)) {
+    throw new Error(
+      `This build leaves cards on the floor that are themselves worth ${bidValue}. Every such group must be incorporated into the house.`
+    );
+  }
+
+  // The primary combo (the played card plus its floor cards) is one combination; each absorbed
+  // group is another.
+  const combinationsInHouse = 1 + absorbedGroups.length;
+
+  // Floor order, so the house reads the way the table looked — matching how Ingredient 5 builds it.
+  const movedCards = state.floor.loose.filter(c => takenIds.has(c.id));
+
   const house: House = {
-    id: `house-${crypto.randomUUID()}`,
+    id: newHouseId(),
     // The opening play always creates a brand-new house (the floor has just been revealed with
     // no pre-existing houses to cement into), so ownership is trivially sole to the bidder — see
     // the Ingredient 4/5 Combine architecture notes for why ordinary houses store a single id
     // here while cemented houses can hold up to two (joint ownership).
     ownerSides: [playerId],
-    cards: [...floorCards, builderCard],
+    cards: [...movedCards, builderCard],
     captureValue: bidValue,
-    isCemented: false
+    // CEMENTING. Not "it absorbed something" — the rule is how many independent combinations each
+    // worth the called value went into this house. One combination (7 + 6 = 13) is an ordinary
+    // house. Two or more (7 + 6 = 13 AND 8 + 5 = 13) is a fixed one. Stated here as the count it
+    // actually is, rather than inferred from the absorbed list being non-empty.
+    isCemented: combinationsInHouse > 1
   };
 
-  const floorCardIdSet = new Set(floorCardIds);
+  const floorCardIdSet = takenIds;
   const nextState: GameState = {
     ...updatePlayer(state, playerId, { hand: handAfterPlaying }),
     floor: {
@@ -296,7 +373,7 @@ export function submitOpeningAction(state: GameState, playerId: string, action: 
   requireOpeningPreconditions(state, playerId);
   switch (action.type) {
     case 'build':
-      return applyBuild(state, playerId, action.builderCardId, action.floorCardIds);
+      return applyBuild(state, playerId, action.builderCardId, action.floorCardIds, action.absorbedLooseCardIds ?? []);
     case 'capture':
       return applyCapture(state, playerId, action.bidCardId, action.targets);
     case 'throw':

@@ -130,12 +130,21 @@ function detailFrom(option: LegalOption, label: string): string {
 /**
  * What tapping a card should do.
  *
- * - no legal option     → the card isn't in play right now; nothing happens
- * - exactly one option  → that IS the move; play it, no confirmation
- * - several options     → the player chooses, from exactly the options the engine offered
+ * - no legal option        → the card isn't in play right now; nothing happens
+ * - one option, not a throw → that IS the move; play it, no confirmation
+ * - a lone throw           → still ask, see below
+ * - several options        → the player chooses, from exactly the options the engine offered
  *
  * "One option" means one distinct legal choice — not one kind of action. A card that can capture
  * two different ways has two choices and the player is asked which, even though both are captures.
+ *
+ * THROWING IS ALWAYS CONFIRMED (2026-10-07). Giving a card away is the one move nobody ever wants
+ * to make by accident, and it is also the commonest single option there is — in a 18,000-decision
+ * sweep, 62% of cards had exactly one legal thing to do and the great majority of those were
+ * throws. Played instantly on tap, that reads as the table deciding for you, especially when the
+ * build or break you were reaching for was quietly unavailable. So a lone throw is still offered
+ * as a choice: one tap to see what it is, one to mean it. Every other single option plays straight
+ * away, because taking cards is never the move you regret.
  */
 export type CardPlan =
   | { kind: 'unavailable' }
@@ -145,6 +154,6 @@ export type CardPlan =
 export function planForCard(options: LegalOption[] | undefined, state: GameState): CardPlan {
   if (!options || options.length === 0) return { kind: 'unavailable' };
   const choices = choicesForCard(options, state);
-  if (choices.length === 1) return { kind: 'direct', choice: choices[0] };
+  if (choices.length === 1 && choices[0].option.kind !== 'throw') return { kind: 'direct', choice: choices[0] };
   return { kind: 'choose', choices };
 }

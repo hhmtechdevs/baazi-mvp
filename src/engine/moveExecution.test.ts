@@ -450,11 +450,19 @@ describe('Combine/Cement architecture', () => {
     assertCardInvariant(next);
   });
 
-  it('cementing a partner-owned house using ONLY the partner\'s key is legal (frozen: "responsible partner\'s key")', () => {
+  it('cementing a house your SIDE already owns needs no key of your own', () => {
+    // REVISED 2026-10-07 (Product Owner, corroborated by Pagat). The test is no longer about whose
+    // HAND holds a key but about whose HOUSE it is: your side already owns this one, the owner is
+    // already obliged to hold the key, and the claim is visible on the table. A house belonging to
+    // the other side is the case that demands a key of your own — see the Add-to-Fixed tests.
     const nine = card('9', 'clubs');
     const nineToPlay = card('9', 'spades'); // p1 plays this — holds no spare 9 themselves
-    const partnerSpareKey = card('9', 'diamonds'); // p2 (p1's partner) holds the retained key instead
+    const partnerSpareKey = card('9', 'diamonds'); // p2 holds a 9, which no longer helps p1
     const existing: House = { id: 'house-A', ownerSides: ['p2'], cards: [nine], captureValue: 9, isCemented: false };
+    const base = {
+      floorHouses: [existing],
+      teams: [team0, team1]
+    };
     const state = makeState({
       players: [
         makePlayer('p1', [nineToPlay], { teamId: 'team-0' }),
@@ -462,10 +470,22 @@ describe('Combine/Cement architecture', () => {
         makePlayer('p3', [], { teamId: 'team-1' }),
         makePlayer('p4', [], { teamId: 'team-1' })
       ],
-      floorHouses: [existing],
-      teams: [team0, team1]
+      ...base
     });
-    const next = executeMove(state, 'p1', { kind: 'cement', handCardId: nineToPlay.id, floorCardIds: [], existingHouseId: 'house-A', absorbedLooseCardIds: [] });
+    const onPartnersHouse = executeMove(state, 'p1', { kind: 'cement', handCardId: nineToPlay.id, floorCardIds: [], existingHouseId: 'house-A', absorbedLooseCardIds: [] });
+    expect(onPartnersHouse.floor.houses.find(h => h.id === 'house-A')!.isCemented).toBe(true);
+
+    // And it stands equally when p1 keeps a 9 of their own.
+    const withOwnKey = makeState({
+      players: [
+        makePlayer('p1', [nineToPlay, card('9', 'hearts')], { teamId: 'team-0' }),
+        makePlayer('p2', [], { teamId: 'team-0' }),
+        makePlayer('p3', [], { teamId: 'team-1' }),
+        makePlayer('p4', [], { teamId: 'team-1' })
+      ],
+      ...base
+    });
+    const next = executeMove(withOwnKey, 'p1', { kind: 'cement', handCardId: nineToPlay.id, floorCardIds: [], existingHouseId: 'house-A', absorbedLooseCardIds: [] });
     const house = next.floor.houses.find(h => h.id === 'house-A')!;
     expect(house.isCemented).toBe(true);
     expect(house.ownerSides).toEqual(['team-0']); // same side before and after -> "remains", no join needed
@@ -567,14 +587,20 @@ describe('Combine/Cement architecture', () => {
 
   it('Add-to-Fixed uses a hand card plus compatible loose cards (Pagat: Ace+6+3=10), and separately absorbs any other compatible pair too', () => {
     const ace = card('A', 'hearts');
-    const spare = card('A', 'diamonds');
+    // The retained key for the 10-house. Since 2026-10-07 the acting side must hold one whether or
+    // not the played card reaches the value by itself — this test is about absorption mechanics,
+    // so it simply holds the key rather than exercising that rule.
+    const spare = card('10', 'clubs');
     const cemented: House = { id: 'house-A', ownerSides: ['p1'], cards: [card('9', 'clubs'), card('J', 'diamonds')], captureValue: 10, isCemented: true };
     const state = makeState({
       players: [makePlayer('p1', [ace, spare]), makePlayer('p2', [])],
       // 6+3 is the primary combo alongside the Ace (Pagat's example); 8+2 is a coincidental
       // second combination that must ALSO be swept in automatically once Add-to-Fixed is chosen.
       floorLoose: [card('6', 'spades'), card('3', 'clubs'), card('8', 'diamonds'), card('2', 'hearts')],
-      floorHouses: [cemented]
+      floorHouses: [cemented],
+      // Two players, no partnerships — this test is about absorption, and 2-player mode means
+      // side resolution never needs state.teams.
+      mode: '2player'
     });
     const next = executeMove(state, 'p1', { kind: 'addToFixed', handCardId: ace.id, floorCardIds: ['6-spades', '3-clubs'], existingHouseId: 'house-A', absorbedLooseCardIds: ['8-diamonds', '2-hearts'] });
     const house = next.floor.houses.find(h => h.id === 'house-A')!;
@@ -588,17 +614,18 @@ describe('Combine/Cement architecture', () => {
   });
 
   it('mandatory-capture does not apply to Combine: a house-aware, side-aware Cement and a Capture are both legal at once, and each choice executes its full consequences', () => {
-    // p1 holds no spare 9 themselves — the Cement option only exists because their partner p2
-    // holds the retained key (the side-aware "responsible partner's key" rule). The house is
-    // owned by the opposing team (p3), so choosing Cement would also cross into joint ownership —
-    // this exercises the full new house-aware path, not a generic/self-only build-or-capture test.
+    // p1 keeps a spare 9 of their own — since 2026-10-07 the key must be the acting player's, not
+    // a partner's. The house is owned by the opposing team (p3), so choosing Cement still crosses
+    // into joint ownership — this exercises the full house-aware path, not a generic build-or-capture
+    // test.
     const four = card('4', 'spades');
     const nine = card('9', 'hearts');
+    const ownSpareKey = card('9', 'spades'); // p1's own retained 9 — a partner's no longer counts
     const partnerSpareKey = card('9', 'diamonds');
     const existingNineHouse: House = { id: 'house-A', ownerSides: ['p3'], cards: [card('9', 'clubs')], captureValue: 9, isCemented: false };
     const state = makeState({
       players: [
-        makePlayer('p1', [four, nine], { teamId: 'team-0' }),
+        makePlayer('p1', [four, nine, ownSpareKey], { teamId: 'team-0' }),
         makePlayer('p2', [partnerSpareKey], { teamId: 'team-0' }),
         makePlayer('p3', [], { teamId: 'team-1' }),
         makePlayer('p4', [], { teamId: 'team-1' })

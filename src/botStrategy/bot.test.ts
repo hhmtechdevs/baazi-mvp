@@ -5,7 +5,7 @@ import { chooseBid, chooseMove, chooseOpeningAction } from './strategy';
 import { evaluate } from './evaluate';
 import { unseenCards, estimatedCaptureRisk } from './cardCounting';
 import { playAutomatedGame } from './autoplay';
-import { flattenOptionsForHand, toNormalPlayMove } from '../engine/moveAdapter';
+import { flattenOptionsForHand, toNormalPlayMove, toOpeningAction } from '../engine/moveAdapter';
 import { discoverLegalMoves } from '../engine/roundOrchestrator';
 import type { OrchestratedGame } from '../engine/roundOrchestrator';
 
@@ -37,7 +37,7 @@ describe('bot only ever selects moves that were actually discovered as legal', (
 
     const openingOptions = flattenOptionsForHand(discoverLegalMoves(game, bidderId));
     const openingDecision = chooseOpeningAction(game, bidderId);
-    expect(openingOptions.some(o => JSON.stringify(toActionShape(o)) === JSON.stringify(openingDecision.choice))).toBe(true);
+    expect(openingOptions.some(o => JSON.stringify(toOpeningAction(o)) === JSON.stringify(openingDecision.choice))).toBe(true);
     game = submitOpeningAction(game, bidderId, openingDecision.choice);
 
     let guard = 0;
@@ -55,11 +55,9 @@ describe('bot only ever selects moves that were actually discovered as legal', (
   });
 });
 
-function toActionShape(o: ReturnType<typeof flattenOptionsForHand>[number]) {
-  if (o.kind === 'build') return { type: 'build', builderCardId: o.handCardId, floorCardIds: o.floorCardIds };
-  if (o.kind === 'capture') return { type: 'capture', bidCardId: o.handCardId, targets: o.targets };
-  return { type: 'throw', bidCardId: o.handCardId };
-}
+// Deliberately NOT a local copy of the adapter. A hand-written version of this drifted silently
+// when opening builds learned to absorb loose groups, and showed up as an intermittent failure of
+// the invariant below rather than as an obviously stale fixture.
 
 describe('bot completes a full 2-player round', () => {
   it('plays bid -> opening -> main play -> roundEnd entirely via chooseX + submitX, invariant holding throughout', () => {

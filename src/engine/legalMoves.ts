@@ -50,6 +50,37 @@ function sideOf(state: GameState, playerId: string): string {
 }
 
 /** Other players sharing this player's side (their partner, in 4-player mode). Empty in 2-player mode. */
+/**
+ * Teammates, where the table can actually say who they are.
+ *
+ * `sideOf` refuses a 4-player state whose teams are not populated — rightly, because ownership
+ * decisions must never be guessed at. But a key check only ASKS whether a partner can help, and a
+ * state with no teams recorded has no partner to offer. Answering "nobody" there is both honest
+ * and the safe direction: it can only withhold a move, never permit one.
+ */
+/**
+ * A player's side, falling back to the player themselves when the table has not recorded teams.
+ *
+ * `sideOf` rightly refuses to guess for ownership decisions. The questions below — "does my side
+ * already own this house" and "who owns it afterwards" — need an answer on every discovery pass,
+ * including on partially-built states, so they use this instead of taking the table down.
+ */
+function sideOrSelf(state: GameState, playerId: string): string {
+  if (state.mode === '2player') return playerId;
+  return state.teams.find(t => t.playerIds.includes(playerId))?.id ?? playerId;
+}
+
+/** The sides owning a house, resolved the same tolerant way. */
+function owningSidesTolerant(state: GameState, house: House): Set<string> {
+  return new Set(house.ownerSides.map(owner => sideOrSelf(state, owner)));
+}
+
+function knownTeammatesOf(state: GameState, playerId: string): Player[] {
+  if (state.mode === '2player') return [];
+  if (!state.teams.some(t => t.playerIds.includes(playerId))) return [];
+  return teammatesOf(state, playerId);
+}
+
 function teammatesOf(state: GameState, playerId: string): Player[] {
   if (state.mode === '2player') return [];
   const side = sideOf(state, playerId);
@@ -116,7 +147,13 @@ export interface LegalAddToFixedOption {
   floorCardIds: string[];
   resultingValue: number;
   absorbedLooseCardIds: string[];
-  // no resultingOwnerSides — Add-to-Fixed never changes ownership (frozen rule)
+  /**
+   * Adding to a house your side does not own buys you INTO it: one entry when your side already
+   * owned it, two when this move joins them (Pagat — adding to an opponent's house makes you a
+   * second owner). Revised 2026-10-07; this used to be absent, Add-to-Fixed having never changed
+   * ownership.
+   */
+  resultingOwnerSides: string[];
 }
 
 export interface LegalCaptureOption {
@@ -354,15 +391,42 @@ function discoverCaptureOptionsForValue(state: GameState, handCard: Card, value:
 
   // Every maximal set of mutually non-conflicting loose groups becomes one complete capture
   // option (combined with every qualifying house, which never conflicts with anything).
-  const maximalCombinations = findMaximalCompatibleGroupSets(looseGroups);
-  return maximalCombinations.map(combo => buildOption(combo.flat()));
+  //
+  // DEDUPED BY THE CARDS TAKEN, not by the grouping that reached them. Two different partitions can
+  // cover exactly the same cards: a 3 played over 2♦ A♠ 2♠ A♥ can pair 2♦+A♠ with 2♠+A♥, or 2♦+A♥
+  // with 2♠+A♠ — different groupings, identical capture. The grouping is an implementation detail
+  // of the search; what a player chooses between is the set of cards they pick up, so offering the
+  // same set twice is offering the same move twice. collectAllCompatibleCombinations has always
+  // deduped this way; capture discovery did not, which is the duplicate-option bug seen roughly
+  // once per 120,000 option lists in seeded play.
+  const distinctByCardsTaken = new Map<string, Card[]>();
+  for (const combo of findMaximalCompatibleGroupSets(looseGroups)) {
+    const cards = combo.flat();
+    distinctByCardsTaken.set(cards.map(c => c.id).sort().join(','), cards);
+  }
+  return [...distinctByCardsTaken.values()].map(buildOption);
 }
 
 // ---------------------------------------------------------------------------
 // Build discovery for the OPENING move only (Ingredient 3's exclusive caller). The opening floor
 // has just been revealed with no houses on it yet, so it can never encounter an existing house —
 // Cement/Break/MergeFix/Add-to-Fixed are structurally impossible on the very first move of a
-// hand. Left exactly as before: unchanged, self-only retention, no house-awareness needed.
+// hand. Self-only retention, no house-awareness needed.
+//
+// ABSORPTION (fixed 2026-10-07). This function used to hardcode `absorbedLooseCardIds: []`, on the
+// reasoning that the opening floor holds no pre-existing houses. That reasoning is sound for the
+// house-based actions and wrong for absorption: incorporating OTHER loose groups already worth the
+// called value has nothing to do with houses, and a four-card floor leaves ample room for one.
+// Reported from live play — called 13 over a floor of 8 5 6 Q, the 7 took the 6 and left the 8 and
+// 5 lying there. The frozen Combine rule is that every compatible non-overlapping group that can be
+// incorporated must be, so this now runs the same collectAllCompatibleCombinations pass normal play
+// does.
+//
+// DELIBERATELY NOT CHANGED: the `combo.length > 0` filter below. Normal play permits a build whose
+// played card is laid down with a group swept in alongside it (J with 5 + 6 beside it); the opening
+// forbids it. That divergence is real, is documented in OPENING_BUILD_ABSORPTION.md, and is a
+// separate rules decision that is NOT being taken here — see the pinned test in
+// reportedPositions.test.ts.
 // ---------------------------------------------------------------------------
 
 function discoverBuildOptionsForValue(
@@ -375,20 +439,33 @@ function discoverBuildOptionsForValue(
   const needed = houseValue - rankValue(handCard.rank);
   if (needed < 0) return [];
 
-  // A build always has to combine with something on the floor; no rank stands alone.
+  // A build always has to combine with something on the floor; no rank stands alone. Keeping this
+  // filter is what preserves the opening's existing lay-alongside behaviour — see the header.
   const combos = enumerateSubsetsSummingTo(floorLoose, needed).filter(combo => combo.length > 0);
   const handAfterPlaying = hand.filter(c => c.id !== handCard.id);
   const retains = handAfterPlaying.some(c => rankValue(c.rank) === houseValue);
   if (!retains) return [];
 
-  return combos.map(combo => ({
-    kind: 'build' as const,
-    handCardId: handCard.id,
-    floorCardIds: combo.map(c => c.id),
-    resultingValue: houseValue,
-    absorbedLooseCardIds: [], // the opening floor has just 4 cards and no pre-existing houses
-    resultingOwnerSides: [bidderId]
-  }));
+  const options: LegalBuildOption[] = [];
+  for (const combo of combos) {
+    const comboIds = new Set(combo.map(c => c.id));
+    const remainingLoose = floorLoose.filter(c => !comboIds.has(c.id));
+
+    // Exactly the pass normal-play build discovery runs: every maximal set of non-overlapping
+    // groups still worth the house value. Returns [[]] when there is nothing to take, so a build
+    // with nothing to absorb still yields its single option.
+    for (const absorbed of collectAllCompatibleCombinations(remainingLoose, houseValue)) {
+      options.push({
+        kind: 'build' as const,
+        handCardId: handCard.id,
+        floorCardIds: combo.map(c => c.id),
+        resultingValue: houseValue,
+        absorbedLooseCardIds: absorbed.map(c => c.id),
+        resultingOwnerSides: [bidderId]
+      });
+    }
+  }
+  return options;
 }
 
 // ---------------------------------------------------------------------------
@@ -462,8 +539,18 @@ function discoverLandingOptionsForCard(
     } else if (!houseAtValue.isCemented) {
       // CEMENT — the acting player's own key, or their partner's (frozen).
       const selfRetains = handAfterPlaying.some(c => rankValue(c.rank) === houseValue);
-      const partnerRetains = teammatesOf(state, actingPlayerId).some(p => p.hand.some(c => rankValue(c.rank) === houseValue));
-      if (!selfRetains && !partnerRetains) continue;
+      // WHOSE HOUSE IS IT (Product Owner, 2026-10-07; corroborated by Pagat's Seep page).
+      //
+      // Your side already owns it → add freely. The owner is already obliged to hold the key, so
+      // the side's claim is established, and it is visible on the table rather than hidden in a
+      // teammate's hand.
+      //
+      // It is somebody else's → you must retain a matching card YOURSELF, because you are buying
+      // into a house you have no claim on yet. Pagat states this condition for an opponent's house
+      // specifically, and it is what stops a player feeding a house they can never collect.
+      if (!owningSidesTolerant(state, houseAtValue).has(sideOrSelf(state, actingPlayerId)) && !selfRetains) {
+        continue;
+      }
 
       const beforeSide = sideOf(state, houseAtValue.ownerSides[0]);
       const cementerSide = sideOf(state, actingPlayerId);
@@ -477,7 +564,7 @@ function discoverLandingOptionsForCard(
           floorCardIds: combo.map(c => c.id),
           resultingValue: houseValue,
           absorbedLooseCardIds: absorbed.map(c => c.id),
-          keySatisfiedBy: selfRetains ? 'self' : 'partner',
+          keySatisfiedBy: 'self',
           resultingOwnerSides
         });
       }
@@ -488,24 +575,30 @@ function discoverLandingOptionsForCard(
       // rule, only that ZK-Seep's SeepRules.md corroborates Add-to-Fixed and eventual pickup as
       // distinct concepts worth keeping separate here):
       //
-      // This is a RETAINS check — the same concept already governing Build and Cement above, just
-      // extended to Add-to-Fixed — NOT a "Capture wins a tie" strategic preference. When the
-      // played card ALONE (no floor combo — needed === 0) matches the fixed house's value, using
-      // it to reinforce the house is illegal UNLESS the player's hand still holds ANOTHER card of
-      // that same value afterward. The reasoning: you cannot make/add to a pukka house that you
-      // have no remaining matching card to eventually collect — with only one matching card, using
-      // it to reinforce would permanently strand your own ability to ever capture that house, so
-      // it must capture instead. With a second matching card in hand, reinforcing with one while
-      // keeping the other in reserve is a legitimate, still-available choice.
+      //   A player may add to a cemented house only if their SIDE retains at least one card
+      //   matching that house's capture value. The retained card may be a teammate's. This applies
+      //   whether the played card reaches the value by itself or by combining with floor cards.
       //
-      // Only applies when needed === 0 (the card alone matches, with no floor combo). A
-      // non-matching card that only reaches the house's value via a floor combo (e.g. 5 + a loose
-      // 6 = 11) never had a competing Capture option for THAT card in the first place (normal-play
-      // Capture always targets the played card's own rank — see discoverNormalOptionsForCard —
-      // which here differs from houseValue), so Add-to-Fixed remains fully legal in that case
-      // regardless of what else is in hand.
-      const retainsAnother = handAfterPlaying.some(c => rankValue(c.rank) === houseValue);
-      if (needed === 0 && !retainsAnother) continue;
+      // You cannot reinforce a pukka house your side has no way to eventually collect. The game
+      // does not care who OWNS the house — it cares whether your side has a legitimate path to it.
+      //
+      // REVISED 2026-10-07. The check used to apply only when the played card ALONE matched the
+      // house value (needed === 0), on the reasoning that a card reaching the value through a floor
+      // combo never had a competing Capture option, so Capture could not be said to take priority.
+      // That reasoning is sound, and it answers a different question. Reported twice from live
+      // 4-player play: with no 13 in either hand on the side, Add-to-Fixed was offered onto an
+      // OPPONENT'S cemented 13-house — 6♣ + 7♠ = 13 — moving a 7-point spade into a house that side
+      // could never capture, never break, and held no stake in. The retains concern is the same in
+      // both cases; only one of them was being enforced. See ADD_TO_FIXED_OWNERSHIP.md.
+      //
+      // Hand only, never the 2-player reserve — the same standing the key holds everywhere else.
+      // The same test Cement uses, and for the same reason — see above. Red house: bring your own
+      // key, and you join the ownership. Blue or purple: your side is already in it.
+      const selfRetains = handAfterPlaying.some(c => rankValue(c.rank) === houseValue);
+      const ownersBefore = owningSidesTolerant(state, houseAtValue);
+      const mySide = sideOrSelf(state, actingPlayerId);
+      if (!ownersBefore.has(mySide) && !selfRetains) continue;
+      const resultingOwnerSides = [...new Set([...ownersBefore, mySide])].sort();
       for (const absorbed of collectAllCompatibleCombinations(remainingLoose, houseValue)) {
         results.push({
           kind: 'addToFixed',
@@ -513,7 +606,8 @@ function discoverLandingOptionsForCard(
           existingHouseId: houseAtValue.id,
           floorCardIds: combo.map(c => c.id),
           resultingValue: houseValue,
-          absorbedLooseCardIds: absorbed.map(c => c.id)
+          absorbedLooseCardIds: absorbed.map(c => c.id),
+          resultingOwnerSides
         });
       }
     }

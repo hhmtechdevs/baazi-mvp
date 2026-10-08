@@ -39,7 +39,17 @@ function chooseOpeningAction(game: OrchestratedGame, bidderId: string): OpeningA
     const options = byCard[cardId];
     if (options.length === 0) continue;
     const opt = options[0];
-    if (opt.kind === 'build') return { type: 'build', builderCardId: opt.handCardId, floorCardIds: opt.floorCardIds };
+    // Carries absorbed cards, exactly as moveAdapter's toOpeningAction does. This helper used to
+    // drop them — the same omission as the opening-build defect itself — which made every build it
+    // produced leave compatible groups lying on the floor.
+    if (opt.kind === 'build') {
+      return {
+        type: 'build',
+        builderCardId: opt.handCardId,
+        floorCardIds: opt.floorCardIds,
+        absorbedLooseCardIds: opt.absorbedLooseCardIds
+      };
+    }
     if (opt.kind === 'capture') return { type: 'capture', bidCardId: opt.handCardId, targets: opt.targets };
     if (opt.kind === 'throw') return { type: 'throw', bidCardId: opt.handCardId };
   }

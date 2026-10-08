@@ -109,7 +109,8 @@ describe('move labels read as equations, not prose', () => {
       existingHouseId: 'h1',
       floorCardIds: [],
       resultingValue: 11,
-      absorbedLooseCardIds: ['4-clubs', '7-clubs']
+      absorbedLooseCardIds: ['4-clubs', '7-clubs'],
+      resultingOwnerSides: ['p1']
     };
     expect(describeLegalOption(option, state)).toBe('J♣ = [11] (+4 +7)');
   });
