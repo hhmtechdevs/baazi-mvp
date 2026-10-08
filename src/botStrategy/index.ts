@@ -2,12 +2,22 @@ import type { OpeningAction } from '../types';
 import type { OrchestratedGame } from '../engine/roundOrchestrator';
 import type { NormalPlayMove } from '../engine/moveExecution';
 import { chooseBid, chooseMove, chooseOpeningAction } from './strategy';
+import type { DecisionOptions } from './strategy';
 
 export { evaluate } from './evaluate';
 export type { EvaluationBreakdown } from './evaluate';
 export { estimatedCaptureRisk, unseenCards } from './cardCounting';
 export { chooseBid, chooseMove, chooseOpeningAction } from './strategy';
-export type { BotDecision, ScoredCandidate } from './strategy';
+export type { BotDecision, DecisionOptions, ScoredCandidate } from './strategy';
+export {
+  DEFAULT_DIFFICULTY,
+  DIFFICULTIES,
+  DIFFICULTY_BLURB,
+  DIFFICULTY_LABEL,
+  DIFFICULTY_POLICIES,
+  policyFor
+} from './difficulty';
+export type { Difficulty, DifficultyPolicy, EvaluationPolicy } from './difficulty';
 
 // ---------------------------------------------------------------------------
 // Debug/observability (Section 14) — a simple in-memory log of every bot decision, with the
@@ -43,22 +53,25 @@ function record(entry: BotLogEntry): void {
 
 /** Convenience wrappers that make the decision AND log it — these are what the UI/autoplay
  * runner should call day to day; `chooseBid`/`chooseOpeningAction`/`chooseMove` from `./strategy`
- * remain available directly for tests that want the full candidate list without side effects. */
+ * remain available directly for tests that want the full candidate list without side effects.
+ *
+ * `how` carries the difficulty; left out, it is 'hard' — the opponent every caller has always
+ * had — so a shared table is unaffected by Practice offering a choice. */
 
-export function botChooseBid(game: OrchestratedGame, playerId: string): number {
-  const decision = chooseBid(game, playerId);
+export function botChooseBid(game: OrchestratedGame, playerId: string, how?: DecisionOptions): number {
+  const decision = chooseBid(game, playerId, how);
   record({ playerId, decisionType: 'bid', chosen: decision.choice, score: decision.score, candidateCount: decision.candidates.length });
   return decision.choice;
 }
 
-export function botChooseOpeningAction(game: OrchestratedGame, playerId: string): OpeningAction {
-  const decision = chooseOpeningAction(game, playerId);
+export function botChooseOpeningAction(game: OrchestratedGame, playerId: string, how?: DecisionOptions): OpeningAction {
+  const decision = chooseOpeningAction(game, playerId, how);
   record({ playerId, decisionType: 'openingAction', chosen: decision.choice, score: decision.score, candidateCount: decision.candidates.length });
   return decision.choice;
 }
 
-export function botChooseMove(game: OrchestratedGame, playerId: string): NormalPlayMove {
-  const decision = chooseMove(game, playerId);
+export function botChooseMove(game: OrchestratedGame, playerId: string, how?: DecisionOptions): NormalPlayMove {
+  const decision = chooseMove(game, playerId, how);
   record({ playerId, decisionType: 'move', chosen: decision.choice, score: decision.score, candidateCount: decision.candidates.length });
   return decision.choice;
 }

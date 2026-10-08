@@ -4,6 +4,8 @@ import { discoverLegalMoves, submitBid, submitMove, submitOpeningAction } from '
 import type { NormalPlayMove } from '../engine/moveExecution';
 import { flattenOptionsForHand, toNormalPlayMove, toOpeningAction } from '../engine/moveAdapter';
 import { evaluate } from './evaluate';
+import { DEFAULT_DIFFICULTY, policyFor } from './difficulty';
+import type { Difficulty, DifficultyPolicy } from './difficulty';
 
 // ---------------------------------------------------------------------------
 // Strategy / search. Every simulation below goes through the SAME orchestrator entry points a
@@ -16,10 +18,16 @@ import { evaluate } from './evaluate';
 //
 // Search shape: a full 1-ply evaluation of every legal option, refined by a bounded 2-ply
 // minimax (best response assumed from the opponent) for only the top candidates — see
-// TOP_K_FOR_LOOKAHEAD / MAX_OPPONENT_REPLIES_CONSIDERED below for the exact bound. This keeps the
+// difficulty.ts for the exact bounds, which live with the 'hard' policy. This keeps the
 // browser responsive (bounded branching, no unbounded recursion) while still looking one full
 // exchange ahead for the moves that matter most, per the frozen "bounded search with a strong
 // evaluation function" guidance.
+//
+// Difficulty (difficulty.ts) scales exactly that shape — how wide the refinement is, how much the
+// evaluation knows, and whether the best-scoring candidate is taken outright — and nothing else.
+// It cannot widen what is legal: every mode chooses from the same discoverLegalMoves output, so a
+// weaker Baazigar plays worse moves, never different rules. The default is 'hard', which is these
+// same constants, so an unqualified call behaves exactly as it did before difficulty existed.
 // ---------------------------------------------------------------------------
 
 export interface ScoredCandidate<T> {
@@ -33,8 +41,36 @@ export interface BotDecision<T> {
   candidates: ScoredCandidate<T>[];
 }
 
-const TOP_K_FOR_LOOKAHEAD = 5;
-const MAX_OPPONENT_REPLIES_CONSIDERED = 12;
+/**
+ * Which candidate to actually play.
+ *
+ * With no slack this is simply the best one, picked deterministically — that is Hard, and it is
+ * the behaviour every caller had before. With slack, anything within that much of the best is
+ * good enough, and one of them is taken at random: a weaker player sees a decent move and plays
+ * it rather than grinding out the optimum. The pool is always a subset of the legal candidates,
+ * so this can only ever choose a legal move.
+ */
+function settleOn<T>(candidates: ScoredCandidate<T>[], slack: number, rng: () => number): ScoredCandidate<T> {
+  const best = candidates[0];
+  if (slack <= 0) return best;
+  const goodEnough = candidates.filter(c => Number.isFinite(c.score) && c.score >= best.score - slack);
+  if (goodEnough.length <= 1) return best;
+  return goodEnough[Math.min(goodEnough.length - 1, Math.floor(rng() * goodEnough.length))];
+}
+
+/**
+ * How a decision is to be made (the `how` argument throughout this file). `difficulty` names one
+ * of the three modes; `rng` exists so a test can
+ * make a slack-taking mode deterministic, and defaults to Math.random in play.
+ */
+export interface DecisionOptions {
+  difficulty?: Difficulty;
+  rng?: () => number;
+}
+
+function settings(how?: DecisionOptions): { policy: DifficultyPolicy; rng: () => number } {
+  return { policy: policyFor(how?.difficulty ?? DEFAULT_DIFFICULTY), rng: how?.rng ?? Math.random };
+}
 
 function otherPlayerId(game: OrchestratedGame, playerId: string): string {
   const other = game.state.players.find(p => p.id !== playerId);
@@ -52,7 +88,8 @@ function otherPlayerId(game: OrchestratedGame, playerId: string): string {
  * discover→simulate→evaluate pattern as move selection, just for a smaller, differently-shaped
  * decision.
  */
-export function chooseBid(game: OrchestratedGame, playerId: string): BotDecision<number> {
+export function chooseBid(game: OrchestratedGame, playerId: string, how?: DecisionOptions): BotDecision<number> {
+  const { policy, rng } = settings(how);
   const hand = game.state.players.find(p => p.id === playerId)?.hand ?? [];
   const RANK_VALUES: Record<string, number> = { A: 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, J: 11, Q: 12, K: 13 };
   const eligibleValues = [...new Set(hand.map(c => RANK_VALUES[c.rank]).filter(v => v >= 9 && v <= 13))];
@@ -70,13 +107,14 @@ export function chooseBid(game: OrchestratedGame, playerId: string): BotDecision
     }
     const bestOpeningResult = openingOptions
       .map(opt => submitOpeningAction(afterBid, playerId, toOpeningAction(opt)))
-      .map(after => evaluate(after.state, playerId).total)
+      .map(after => evaluate(after.state, playerId, policy.evaluation).total)
       .reduce((best, s) => Math.max(best, s), -Infinity);
     return { choice: value, score: bestOpeningResult };
   });
 
   candidates.sort((a, b) => b.score - a.score);
-  return { choice: candidates[0].choice, score: candidates[0].score, candidates };
+  const called = settleOn(candidates, policy.slack, rng);
+  return { choice: called.choice, score: called.score, candidates };
 }
 
 /**
@@ -84,17 +122,23 @@ export function chooseBid(game: OrchestratedGame, playerId: string): BotDecision
  * throw where applicable), so whatever discoverLegalMoves returns during the opening decision is
  * already the correct, narrowed set — the bot only ever picks among what's actually offered.
  */
-export function chooseOpeningAction(game: OrchestratedGame, playerId: string): BotDecision<OpeningAction> {
+export function chooseOpeningAction(
+  game: OrchestratedGame,
+  playerId: string,
+  how?: DecisionOptions
+): BotDecision<OpeningAction> {
+  const { policy, rng } = settings(how);
   const options = flattenOptionsForHand(discoverLegalMoves(game, playerId));
   if (options.length === 0) throw new Error(`No legal opening action available for ${playerId}.`);
 
   const candidates = options.map(opt => {
     const action = toOpeningAction(opt);
     const after = submitOpeningAction(game, playerId, action);
-    return { choice: action, score: evaluate(after.state, playerId).total };
+    return { choice: action, score: evaluate(after.state, playerId, policy.evaluation).total };
   });
   candidates.sort((a, b) => b.score - a.score);
-  return { choice: candidates[0].choice, score: candidates[0].score, candidates };
+  const opened = settleOn(candidates, policy.slack, rng);
+  return { choice: opened.choice, score: opened.score, candidates };
 }
 
 /**
@@ -102,7 +146,8 @@ export function chooseOpeningAction(game: OrchestratedGame, playerId: string): B
  * evaluation of every legal option, then a bounded 2-ply minimax refinement (assume the opponent
  * plays their own best reply) for the top few candidates only.
  */
-export function chooseMove(game: OrchestratedGame, playerId: string): BotDecision<NormalPlayMove> {
+export function chooseMove(game: OrchestratedGame, playerId: string, how?: DecisionOptions): BotDecision<NormalPlayMove> {
+  const { policy, rng } = settings(how);
   const options = flattenOptionsForHand(discoverLegalMoves(game, playerId));
   if (options.length === 0) throw new Error(`No legal move available for ${playerId} despite it being their turn.`);
 
@@ -111,12 +156,12 @@ export function chooseMove(game: OrchestratedGame, playerId: string): BotDecisio
   const depth1 = options.map(opt => {
     const move = toNormalPlayMove(opt);
     const after = submitMove(game, playerId, move);
-    return { choice: move, score: evaluate(after.state, playerId).total, after };
+    return { choice: move, score: evaluate(after.state, playerId, policy.evaluation).total, after };
   });
   depth1.sort((a, b) => b.score - a.score);
 
   const refined: ScoredCandidate<NormalPlayMove>[] = depth1.map((candidate, index) => {
-    if (index >= TOP_K_FOR_LOOKAHEAD) return { choice: candidate.choice, score: candidate.score };
+    if (index >= policy.lookaheadCandidates) return { choice: candidate.choice, score: candidate.score };
 
     const { after } = candidate;
     if (after.state.phase !== 'playing' || after.state.players[after.state.currentPlayerIndex].id !== opponentId) {
@@ -125,19 +170,20 @@ export function chooseMove(game: OrchestratedGame, playerId: string): BotDecisio
       return { choice: candidate.choice, score: candidate.score };
     }
 
-    const opponentOptions = flattenOptionsForHand(discoverLegalMoves(after, opponentId)).slice(0, MAX_OPPONENT_REPLIES_CONSIDERED);
+    const opponentOptions = flattenOptionsForHand(discoverLegalMoves(after, opponentId)).slice(0, policy.opponentReplies);
     if (opponentOptions.length === 0) return { choice: candidate.choice, score: candidate.score };
 
     let worstForUs = Infinity;
     for (const opt of opponentOptions) {
       const opponentMove = toNormalPlayMove(opt);
       const afterReply = submitMove(after, opponentId, opponentMove);
-      const scoreForUs = evaluate(afterReply.state, playerId).total;
+      const scoreForUs = evaluate(afterReply.state, playerId, policy.evaluation).total;
       if (scoreForUs < worstForUs) worstForUs = scoreForUs;
     }
     return { choice: candidate.choice, score: worstForUs };
   });
 
   refined.sort((a, b) => b.score - a.score);
-  return { choice: refined[0].choice, score: refined[0].score, candidates: refined };
+  const played = settleOn(refined, policy.slack, rng);
+  return { choice: played.choice, score: played.score, candidates: refined };
 }

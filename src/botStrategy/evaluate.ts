@@ -1,6 +1,8 @@
 import type { GameState } from '../types';
 import { cardPoints, computeRoundScoreBreakdown } from '../engine/scoring';
 import { estimatedCaptureRisk, rankValue, unseenCards } from './cardCounting';
+import { FULL_STRENGTH_EVALUATION } from './difficulty';
+import type { EvaluationPolicy } from './difficulty';
 
 // ---------------------------------------------------------------------------
 // Centralized evaluation — every strategic judgment the bot makes runs through this one function,
@@ -39,8 +41,16 @@ export interface EvaluationBreakdown {
  * reads the opponent's hand/reserve contents directly — only the pooled "unseen" set (see
  * cardCounting.ts) — so the bot reasons the way an attentive human player at the table would,
  * using only what's actually visible: the floor, both captured piles, and its own hand.
+ *
+ * `policy` decides how much of that reasoning is switched on — see difficulty.ts. Its default is
+ * the full-strength evaluation this function has always performed, so an unqualified call is the
+ * same call it always was.
  */
-export function evaluate(state: GameState, forPlayerId: string): EvaluationBreakdown {
+export function evaluate(
+  state: GameState,
+  forPlayerId: string,
+  policy: EvaluationPolicy = FULL_STRENGTH_EVALUATION
+): EvaluationBreakdown {
   const self = state.players.find(p => p.id === forPlayerId);
   const opponent = state.players.find(p => p.id !== forPlayerId);
   if (!self || !opponent) throw new Error(`evaluate expects exactly two players; could not resolve both sides for ${forPlayerId}.`);
@@ -50,7 +60,10 @@ export function evaluate(state: GameState, forPlayerId: string): EvaluationBreak
   const cumulativeDifferential = (state.scores[forPlayerId] ?? 0) - (state.scores[opponent.id] ?? 0);
 
   const nextPlayerId = state.phase === 'playing' ? state.players[state.currentPlayerIndex]?.id : null;
-  const unseen = unseenCards(state, forPlayerId);
+  const unseen = policy.countsCards ? unseenCards(state, forPlayerId) : [];
+  // Not counting cards means having no idea which values are still live — so every value the
+  // opponent might answer looks equally, vaguely dangerous.
+  const riskAt = (value: number) => (policy.countsCards ? estimatedCaptureRisk(unseen, value) : policy.blindRisk);
 
   let floorLooseValue = 0;
   for (const card of state.floor.loose) {
@@ -60,7 +73,7 @@ export function evaluate(state: GameState, forPlayerId: string): EvaluationBreak
       const ownHandCanTakeIt = self.hand.some(c => rankValue(c.rank) === rankValue(card.rank));
       floorLooseValue += points * (ownHandCanTakeIt ? 1 : 0.3);
     } else if (nextPlayerId === opponent.id) {
-      floorLooseValue -= points * estimatedCaptureRisk(unseen, rankValue(card.rank));
+      floorLooseValue -= points * riskAt(rankValue(card.rank));
     }
   }
 
@@ -72,12 +85,13 @@ export function evaluate(state: GameState, forPlayerId: string): EvaluationBreak
       const ownHandCanTakeIt = self.hand.some(c => rankValue(c.rank) === house.captureValue);
       houseValue += points * (ownHandCanTakeIt ? 1 : 0.2);
     } else if (nextPlayerId === opponent.id) {
-      houseValue -= points * estimatedCaptureRisk(unseen, house.captureValue);
+      houseValue -= points * riskAt(house.captureValue);
     }
   }
 
-  const handPotential = self.hand.reduce((sum, c) => sum + cardPoints(c), 0) * 0.5;
+  const handPotential = self.hand.reduce((sum, c) => sum + cardPoints(c), 0) * policy.handPotentialWeight;
 
-  const total = scoreDifferential * 3 + cumulativeDifferential * 0.1 + floorLooseValue + houseValue + handPotential;
+  const total =
+    scoreDifferential * 3 + cumulativeDifferential * policy.cumulativeWeight + floorLooseValue + houseValue + handPotential;
   return { scoreDifferential, cumulativeDifferential, floorLooseValue, houseValue, handPotential, total };
 }
